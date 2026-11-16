@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
@@ -11,16 +12,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.game.data.FighterDefinition
-import com.example.game.data.FighterVisualStyle
 
 @Composable
 fun FighterAvatar(
@@ -28,132 +27,63 @@ fun FighterAvatar(
     size: Dp = 56.dp,
     modifier: Modifier = Modifier
 ) {
+    val shape = RoundedCornerShape(14.dp)
     Box(
         modifier = modifier
             .size(size)
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                Brush.linearGradient(
+            .clip(shape)
+            .background(Color(0xFF0B0E17))
+            .border(
+                width = 2.dp,
+                brush = Brush.linearGradient(
                     colors = listOf(
-                        fighter.primaryColor.copy(alpha = 0.35f),
-                        Color(0xFF10131E)
+                        fighter.primaryColor,
+                        fighter.accentColor,
+                        fighter.primaryColor
                     )
-                )
+                ),
+                shape = shape
             )
-            .border(1.5.dp, fighter.primaryColor.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
     ) {
+        Image(
+            painter = painterResource(id = fighter.portraitRes),
+            contentDescription = fighter.name,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // Arcade glossy sheen & bottom rim vignette
         Canvas(modifier = Modifier.fillMaxSize()) {
             val w = this.size.width
             val h = this.size.height
-            val cx = w * 0.5f
-            val cy = h * 0.48f
 
-            // Subtle energy aura circle
-            drawCircle(
-                color = fighter.accentColor.copy(alpha = 0.20f),
-                radius = w * 0.38f,
-                center = Offset(cx, cy)
+            // Subtle bottom color rim lighting
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color.Transparent,
+                        fighter.primaryColor.copy(alpha = 0.28f)
+                    )
+                )
             )
 
-            // Shoulders / torso silhouette
-            val torso = Path().apply {
-                moveTo(w * 0.22f, h * 0.96f)
-                lineTo(w * 0.32f, h * 0.64f)
-                lineTo(w * 0.68f, h * 0.64f)
-                lineTo(w * 0.78f, h * 0.96f)
+            // Diagonal glass sheen at top-left
+            val sheen = Path().apply {
+                moveTo(0f, 0f)
+                lineTo(w * 0.55f, 0f)
+                lineTo(w * 0.16f, h * 0.45f)
+                lineTo(0f, h * 0.45f)
                 close()
             }
-            drawPath(torso, color = fighter.primaryColor)
-
-            // Head
-            drawCircle(
-                color = Color(0xFFEBD2BE),
-                radius = w * 0.17f,
-                center = Offset(cx, h * 0.40f)
+            drawPath(
+                path = sheen,
+                brush = Brush.linearGradient(
+                    colors = listOf(Color.White.copy(alpha = 0.20f), Color.Transparent),
+                    start = Offset(0f, 0f),
+                    end = Offset(w * 0.45f, h * 0.45f)
+                )
             )
-
-            // Style-specific signature gear
-            when (fighter.visualStyle) {
-                FighterVisualStyle.SHOTO_FLAME -> {
-                    // Spiky hair & red headband
-                    drawRect(
-                        color = fighter.primaryColor,
-                        topLeft = Offset(cx - w * 0.18f, h * 0.27f),
-                        size = Size(w * 0.36f, h * 0.08f)
-                    )
-                    drawLine(
-                        color = fighter.accentColor,
-                        start = Offset(cx + w * 0.15f, h * 0.31f),
-                        end = Offset(w * 0.86f, h * 0.24f),
-                        strokeWidth = w * 0.06f,
-                        cap = StrokeCap.Round
-                    )
-                }
-                FighterVisualStyle.CYBER_NINJA -> {
-                    // Glowing visor
-                    drawRect(
-                        color = Color(0xFF151924),
-                        topLeft = Offset(cx - w * 0.18f, h * 0.24f),
-                        size = Size(w * 0.36f, h * 0.19f)
-                    )
-                    drawLine(
-                        color = fighter.primaryColor,
-                        start = Offset(cx - w * 0.12f, h * 0.38f),
-                        end = Offset(cx + w * 0.14f, h * 0.38f),
-                        strokeWidth = w * 0.065f,
-                        cap = StrokeCap.Round
-                    )
-                }
-                FighterVisualStyle.STEEL_COLOSSUS -> {
-                    // Heavy steel helmet & pauldrons
-                    drawCircle(
-                        color = fighter.primaryColor,
-                        radius = w * 0.20f,
-                        center = Offset(cx, h * 0.38f),
-                        style = Stroke(width = w * 0.08f)
-                    )
-                    drawCircle(
-                        color = fighter.accentColor,
-                        radius = w * 0.08f,
-                        center = Offset(cx, h * 0.77f)
-                    )
-                }
-                FighterVisualStyle.WIND_MAGE -> {
-                    // Arcane halo behind head
-                    drawCircle(
-                        color = fighter.accentColor,
-                        radius = w * 0.27f,
-                        center = Offset(cx, h * 0.36f),
-                        style = Stroke(width = w * 0.04f)
-                    )
-                    drawArc(
-                        color = fighter.primaryColor,
-                        startAngle = 180f,
-                        sweepAngle = 180f,
-                        useCenter = true,
-                        topLeft = Offset(cx - w * 0.19f, h * 0.21f),
-                        size = Size(w * 0.38f, h * 0.24f)
-                    )
-                }
-                FighterVisualStyle.NEON_RONIN -> {
-                    // Conical ronin hat & diagonal katana glint
-                    val hat = Path().apply {
-                        moveTo(cx, h * 0.13f)
-                        lineTo(w * 0.18f, h * 0.34f)
-                        lineTo(w * 0.82f, h * 0.34f)
-                        close()
-                    }
-                    drawPath(hat, color = Color(0xFF1D2234))
-                    drawPath(hat, color = fighter.accentColor, style = Stroke(width = w * 0.03f))
-                    drawLine(
-                        color = fighter.primaryColor,
-                        start = Offset(w * 0.18f, h * 0.86f),
-                        end = Offset(w * 0.84f, h * 0.56f),
-                        strokeWidth = w * 0.055f,
-                        cap = StrokeCap.Round
-                    )
-                }
-            }
         }
     }
 }

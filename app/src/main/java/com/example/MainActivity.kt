@@ -115,7 +115,7 @@ private fun AuthenticatedApp(
 
     val profileState by mainViewModel.profileState.collectAsStateWithLifecycle()
     val profile = (profileState as? UiState.Success)?.data
-    val favFighterId = profile?.favoriteFighterId ?: "ryuji"
+    val favFighterId = profile?.favoriteFighterId ?: "glitcherman"
 
     val navController = rememberNavController()
 
@@ -178,8 +178,8 @@ private fun AuthenticatedApp(
 
         composable(Routes.BATTLE_LOCAL) { backStackEntry ->
             val mode = GameMode.valueOf(backStackEntry.arguments?.getString("mode") ?: GameMode.VS_BOT.name)
-            val p1 = backStackEntry.arguments?.getString("p1") ?: "ryuji"
-            val p2 = backStackEntry.arguments?.getString("p2") ?: "kaelith"
+            val p1 = backStackEntry.arguments?.getString("p1") ?: "glitcherman"
+            val p2 = backStackEntry.arguments?.getString("p2") ?: "jardin"
             val stage = backStackEntry.arguments?.getString("stage") ?: "cyber_street"
             val diff = BotDifficulty.valueOf(backStackEntry.arguments?.getString("diff") ?: BotDifficulty.NORMAL.name)
             val oppMode = TrainingOpponentMode.valueOf(backStackEntry.arguments?.getString("oppMode") ?: TrainingOpponentMode.STATIONARY.name)

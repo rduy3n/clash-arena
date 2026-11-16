@@ -29,8 +29,8 @@ function baseRoom(roomCode = "K9X4M2") {
     participantIds: [ALICE_UID],
     status: "waiting",
     stageId: "cyber_street",
-    hostFighterId: "ryuji",
-    guestFighterId: "kaelith",
+    hostFighterId: "glitcherman",
+    guestFighterId: "jardin",
     hostReady: false,
     guestReady: false,
     roundNumber: 1,
@@ -97,7 +97,7 @@ test("Authenticated user can create and read own profile, but cannot read anothe
     aliceDb.collection("users").doc(ALICE_UID).set({
       userId: ALICE_UID,
       displayName: "Alice",
-      favoriteFighterId: "ryuji",
+      favoriteFighterId: "glitcherman",
       wins: 0,
       losses: 0,
       createdAt: nowTs(),
@@ -158,7 +158,7 @@ test("Host can create room, Bob can join, both select fighters, fight, and finis
   // Guest readies up
   await assertSucceeds(
     roomRefBob.update({
-      guestFighterId: "sora",
+      guestFighterId: "le_chinois",
       guestReady: true,
       updatedAt: nowTs(),
     })
@@ -167,7 +167,7 @@ test("Host can create room, Bob can join, both select fighters, fight, and finis
   // Host starts fight
   await assertSucceeds(
     roomRefAlice.update({
-      hostFighterId: "titan",
+      hostFighterId: "daron_bresilien",
       hostReady: true,
       status: "fighting",
       updatedAt: nowTs(),

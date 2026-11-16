@@ -34,7 +34,7 @@ enum class MatchPhase {
 }
 
 data class PlayerInput(
-    val moveDir: Float = 0f,       // -1f left, 0f neutral, +1f right
+    val moveDir: Float = 0f,
     val jumpPressed: Boolean = false,
     val blockHeld: Boolean = false,
     val classicPressed: Boolean = false,
@@ -59,6 +59,9 @@ data class FighterRuntime(
     val classicCooldownMs: Long = 0L,
     val baseCooldownMs: Long = 0L,
     val hitStunMs: Long = 0L,
+    val vineSnaredMs: Long = 0L,      // Immobilisé par les vignes de Jardin
+    val chargingMegaPunch: Boolean = false, // Jardin charge son coup de poing 75% PV
+    val megaPunchDelayMs: Long = 0L,
     val isBlocking: Boolean = false,
     val comboCount: Int = 0,
     val comboDamage: Int = 0,
@@ -77,7 +80,6 @@ data class Projectile(
     val ultiGain: Int,
     val color: Color,
     val accentColor: Color,
-    val isTornado: Boolean = false,
     val ttlMs: Long = 2200L
 )
 
@@ -88,7 +90,7 @@ data class HitSpark(
     val color: Color,
     val isUlti: Boolean,
     val ageMs: Long = 0L,
-    val maxAgeMs: Long = 320L
+    val maxAgeMs: Long = 360L
 )
 
 data class SlashEffect(
@@ -97,10 +99,11 @@ data class SlashEffect(
     val y: Float,
     val facing: Int,
     val color: Color,
+    val accentColor: Color = Color.White,
     val effectType: MoveEffectType,
     val range: Float,
     val ageMs: Long = 0L,
-    val maxAgeMs: Long = 360L
+    val maxAgeMs: Long = 400L
 )
 
 data class FloatingPopup(
@@ -111,7 +114,7 @@ data class FloatingPopup(
     val color: Color,
     val isCritical: Boolean = false,
     val ageMs: Long = 0L,
-    val maxAgeMs: Long = 750L
+    val maxAgeMs: Long = 820L
 )
 
 data class TrainingHudState(
@@ -138,10 +141,11 @@ data class ArenaWorldState(
     val roundClockAccumMs: Long = 0L,
     val p1RoundsWon: Int = 0,
     val p2RoundsWon: Int = 0,
-    val winnerSide: Int = 0, // 0 none, 1 p1, 2 p2
+    val winnerSide: Int = 0,
     val bannerText: String = "ROUND 1",
     val ultiFlashMs: Long = 0L,
     val ultiFlashColor: Color = Color.Yellow,
+    val screenShakeMs: Long = 0L,
     val p1: FighterRuntime,
     val p2: FighterRuntime,
     val projectiles: List<Projectile> = emptyList(),

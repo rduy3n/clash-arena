@@ -73,7 +73,7 @@ fun MatchSetupScreen(
     var p1Id by remember { mutableStateOf(defaultFighterId) }
     var p2Id by remember {
         mutableStateOf(
-            FighterRoster.fighters.firstOrNull { it.id != defaultFighterId }?.id ?: "kaelith"
+            FighterRoster.fighters.firstOrNull { it.id != defaultFighterId }?.id ?: "jardin"
         )
     }
     var stageId by remember { mutableStateOf(FighterRoster.stages.first().id) }
@@ -302,7 +302,7 @@ private fun FighterRowPicker(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    FighterAvatar(fighter = fighter, size = 54.dp)
+                    FighterAvatar(fighter = fighter, size = 68.dp)
                     Text(
                         text = fighter.name,
                         style = MaterialTheme.typography.titleMedium,

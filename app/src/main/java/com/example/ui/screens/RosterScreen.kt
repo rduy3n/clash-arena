@@ -155,7 +155,7 @@ private fun FighterRosterCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    FighterAvatar(fighter = fighter, size = 56.dp)
+                    FighterAvatar(fighter = fighter, size = 72.dp)
                     Column {
                         Text(
                             text = "${fighter.name} • ${fighter.title}",

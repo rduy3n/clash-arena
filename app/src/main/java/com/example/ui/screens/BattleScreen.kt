@@ -1,13 +1,17 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -30,7 +34,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
@@ -62,6 +66,7 @@ import com.example.game.engine.MatchPhase
 import com.example.game.engine.TrainingHudState
 import com.example.ui.components.ArcadeControls
 import com.example.ui.components.ArenaCanvas
+import com.example.ui.components.FighterAvatar
 import com.example.ui.components.MoveListSheet
 import com.example.ui.theme.CrimsonHp
 import com.example.ui.theme.ElectricCyan
@@ -337,30 +342,36 @@ private fun CombatHudHeader(
 ) {
     Surface(
         color = ObsidianSurface,
+        border = BorderStroke(1.dp, ObsidianOutline),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // P1 Bar
-                FighterHealthAndUlti(
-                    fighter = world.p1,
-                    roundsWon = world.p1RoundsWon,
-                    isLocal = localSide == 1,
-                    alignRight = false,
-                    modifier = Modifier.weight(1f)
-                )
+            // P1 Portrait + Bar
+            FighterAvatar(fighter = world.p1.def, size = 44.dp)
+            FighterHealthAndUlti(
+                fighter = world.p1,
+                roundsWon = world.p1RoundsWon,
+                isLocal = localSide == 1,
+                alignRight = false,
+                modifier = Modifier.weight(1f)
+            )
 
-                // Center Clock or Training badge + Exit
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            // Center Clock Crest + Exit
+            Surface(
+                color = ObsidianBg,
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.2.dp, UltiGold.copy(alpha = 0.7f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     if (world.mode == GameMode.TRAINING) {
                         Text(
                             text = "LABO",
@@ -370,34 +381,35 @@ private fun CombatHudHeader(
                     } else {
                         Text(
                             text = "${world.roundTimeRemainingSec}",
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MaterialTheme.typography.titleLarge,
                             color = UltiGold
                         )
                     }
                     IconButton(
                         onClick = onExit,
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(26.dp)
                             .testTag("battle_exit_button")
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ExitToApp,
                             contentDescription = "Quitter le combat",
                             tint = TextSecondary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
-
-                // P2 Bar
-                FighterHealthAndUlti(
-                    fighter = world.p2,
-                    roundsWon = world.p2RoundsWon,
-                    isLocal = localSide == 2,
-                    alignRight = true,
-                    modifier = Modifier.weight(1f)
-                )
             }
+
+            // P2 Bar + Portrait
+            FighterHealthAndUlti(
+                fighter = world.p2,
+                roundsWon = world.p2RoundsWon,
+                isLocal = localSide == 2,
+                alignRight = true,
+                modifier = Modifier.weight(1f)
+            )
+            FighterAvatar(fighter = world.p2.def, size = 44.dp)
         }
     }
 }
@@ -411,11 +423,17 @@ private fun FighterHealthAndUlti(
     modifier: Modifier = Modifier
 ) {
     val hpRatio = (fighter.hp.toFloat() / fighter.def.stats.maxHp.toFloat()).coerceIn(0f, 1f)
-    val hpColor = when {
-        hpRatio > 0.5f -> EmeraldHp
-        hpRatio > 0.25f -> UltiGold
-        else -> CrimsonHp
+    val trailingRatio by animateFloatAsState(
+        targetValue = hpRatio,
+        animationSpec = tween(durationMillis = 550),
+        label = "hpTrail"
+    )
+    val hpBrush = when {
+        hpRatio > 0.5f -> Brush.horizontalGradient(listOf(EmeraldHp, Color(0xFF69F0AE)))
+        hpRatio > 0.25f -> Brush.horizontalGradient(listOf(FlameOrange, UltiGold))
+        else -> Brush.horizontalGradient(listOf(CrimsonHp, Color(0xFFFF8A80)))
     }
+    val ultiRatio = (fighter.ultiMeter / 100f).coerceIn(0f, 1f)
 
     Column(
         modifier = modifier,
@@ -424,13 +442,14 @@ private fun FighterHealthAndUlti(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             if (!alignRight) {
                 Text(
                     text = fighter.def.name + if (isLocal) " (VOUS)" else "",
                     style = MaterialTheme.typography.labelLarge,
-                    color = Color.White
+                    color = Color.White,
+                    maxLines = 1
                 )
                 RoundPips(roundsWon)
             } else {
@@ -438,33 +457,77 @@ private fun FighterHealthAndUlti(
                 Text(
                     text = fighter.def.name + if (isLocal) " (VOUS)" else "",
                     style = MaterialTheme.typography.labelLarge,
-                    color = Color.White
+                    color = Color.White,
+                    maxLines = 1
                 )
             }
         }
 
-        LinearProgressIndicator(
-            progress = { hpRatio },
+        // Arcade Health Bar with delayed trailing damage bar
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(11.dp)
-                .clip(RoundedCornerShape(6.dp)),
-            color = hpColor,
-            trackColor = ObsidianBg
-        )
+                .height(13.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(ObsidianBg)
+                .border(1.dp, ObsidianOutline, RoundedCornerShape(6.dp))
+        ) {
+            val fillAlignment = if (alignRight) Alignment.CenterStart else Alignment.CenterEnd
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(trailingRatio.coerceAtLeast(hpRatio))
+                    .fillMaxHeight()
+                    .align(fillAlignment)
+                    .background(Color(0xFFFF4D6D))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(hpRatio)
+                    .fillMaxHeight()
+                    .align(fillAlignment)
+                    .background(hpBrush)
+            )
+            // Specular highlight strip
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .align(Alignment.TopCenter)
+                    .background(Color.White.copy(alpha = 0.22f))
+            )
+        }
 
+        // Mini Ulti Gauge + HP Readout
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${fighter.hp}/${fighter.def.stats.maxHp}",
+                text = "${fighter.hp}",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary
             )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp)
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(ObsidianBg)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(ultiRatio)
+                        .fillMaxHeight()
+                        .align(if (alignRight) Alignment.CenterStart else Alignment.CenterEnd)
+                        .background(
+                            if (fighter.ultiMeter >= 100) UltiGold else ElectricCyan
+                        )
+                )
+            }
             Text(
-                text = "ULTI ${fighter.ultiMeter}%",
+                text = if (fighter.ultiMeter >= 100) "ULTI !" else "${fighter.ultiMeter}%",
                 style = MaterialTheme.typography.labelSmall,
                 color = if (fighter.ultiMeter >= 100) UltiGold else ElectricCyan
             )

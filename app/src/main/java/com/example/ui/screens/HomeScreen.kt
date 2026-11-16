@@ -63,7 +63,7 @@ fun HomeScreen(
     onOpenRoster: () -> Unit,
     onSignOut: () -> Unit
 ) {
-    val favFighter = FighterRoster.getFighter(profile?.favoriteFighterId ?: "ryuji")
+    val favFighter = FighterRoster.getFighter(profile?.favoriteFighterId ?: "glitcherman")
     val playerName = profile?.displayName ?: fallbackName
     val wins = profile?.wins ?: 0L
     val losses = profile?.losses ?: 0L
@@ -208,8 +208,8 @@ fun HomeScreen(
 
             ModeActionCard(
                 title = "COMBATTANTS & STATS",
-                subtitle = "Comparez les 5 personnages équilibrés et leurs coups spéciaux",
-                badge = "ROSTER (5)",
+                subtitle = "Comparez les 4 personnages équilibrés et leurs coups spéciaux",
+                badge = "ROSTER (4)",
                 accentColor = UltiGold,
                 icon = Icons.Default.Groups,
                 testTag = "mode_roster_card",

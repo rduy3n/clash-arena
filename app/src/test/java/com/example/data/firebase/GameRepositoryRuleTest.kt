@@ -19,13 +19,13 @@ class GameRepositoryRuleTest : FirestoreEmulatorTestBase() {
         val profile = withTimeout(TIMEOUT_MS) { repo.ensureProfile("Alice").getOrThrow() }
         assertEquals(aliceUid, profile.userId)
 
-        val updateRes = withTimeout(TIMEOUT_MS) { repo.updateFavoriteFighter("kaelith") }
+        val updateRes = withTimeout(TIMEOUT_MS) { repo.updateFavoriteFighter("jardin") }
         assertTrue(updateRes.isSuccess)
 
         val observed = withTimeout(FLOW_TIMEOUT_MS) {
-            repo.observeProfile(aliceUid).first { it?.favoriteFighterId == "kaelith" }
+            repo.observeProfile(aliceUid).first { it?.favoriteFighterId == "jardin" }
         }
-        assertEquals("kaelith", observed?.favoriteFighterId)
+        assertEquals("jardin", observed?.favoriteFighterId)
 
         // Bob cannot read Alice's profile
         signInTestUser(BOB_EMAIL)
@@ -42,7 +42,7 @@ class GameRepositoryRuleTest : FirestoreEmulatorTestBase() {
         val aliceUid = signInTestUser(ALICE_EMAIL)
         val aliceRepo = GameRepository(firestore, auth)
         val room = withTimeout(TIMEOUT_MS) {
-            aliceRepo.createMatchRoom("Alice", "ryuji", "cyber_street").getOrThrow()
+            aliceRepo.createMatchRoom("Alice", "glitcherman", "cyber_street").getOrThrow()
         }
         assertEquals(aliceUid, room.hostId)
         assertEquals("waiting", room.status)
@@ -58,11 +58,11 @@ class GameRepositoryRuleTest : FirestoreEmulatorTestBase() {
 
         // Both select fighters and start
         assertTrue(withTimeout(TIMEOUT_MS) {
-            bobRepo.updateLobbySelection(room.roomCode, isHost = false, fighterId = "sora", ready = true).isSuccess
+            bobRepo.updateLobbySelection(room.roomCode, isHost = false, fighterId = "le_chinois", ready = true).isSuccess
         })
         signInTestUser(ALICE_EMAIL)
         assertTrue(withTimeout(TIMEOUT_MS) {
-            aliceRepo.updateLobbySelection(room.roomCode, isHost = true, fighterId = "titan", ready = true, startFight = true).isSuccess
+            aliceRepo.updateLobbySelection(room.roomCode, isHost = true, fighterId = "daron_bresilien", ready = true, startFight = true).isSuccess
         })
 
         // Combat sync & finish

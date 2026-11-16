@@ -14,8 +14,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextMeasurer
@@ -24,12 +26,10 @@ import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
-import com.example.game.data.FighterVisualStyle
 import com.example.game.data.MoveEffectType
 import com.example.game.engine.ArenaWorldState
 import com.example.game.engine.CombatAction
-import com.example.game.engine.FighterRuntime
-import com.example.ui.theme.GuardBlue
+import com.example.game.engine.SlashEffect
 import com.example.ui.theme.RussoOneFamily
 import kotlin.math.PI
 import kotlin.math.cos
@@ -52,16 +52,16 @@ fun ArenaCanvas(
             contentScale = ContentScale.Crop
         )
 
-        // Subtle vignette so fighters & effects pop with maximum contrast
+        // Cinematic lighting & depth vignette
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0x660B0D14),
-                            Color(0x220B0D14),
-                            Color(0xAA0B0D14)
+                            Color(0x66060810),
+                            Color(0x14060810),
+                            Color(0xC2060810)
                         )
                     )
                 )
@@ -72,353 +72,466 @@ fun ArenaCanvas(
             val h = size.height
             val groundY = h * 0.84f
 
-            // Arena floor & neon perspective line
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        world.stage.floorColor.copy(alpha = 0.88f),
-                        Color(0xFF07090F)
-                    ),
-                    startY = groundY,
-                    endY = h
-                ),
-                topLeft = Offset(0f, groundY),
-                size = Size(w, h - groundY)
-            )
-            drawLine(
-                color = world.stage.accentGlow.copy(alpha = 0.85f),
-                start = Offset(0f, groundY),
-                end = Offset(w, groundY),
-                strokeWidth = 4f
-            )
+            // Screen shake offset on heavy Ulti / Colossal Punch hits
+            val shakeMag = if (world.screenShakeMs > 0L) (world.screenShakeMs / 380f) * 16f else 0f
+            val shakeX = if (shakeMag > 0f) sin(timeMs * 0.9f) * shakeMag else 0f
+            val shakeY = if (shakeMag > 0f) cos(timeMs * 1.1f) * shakeMag * 0.7f else 0f
 
-            // Ulti cinematic screen flash
-            if (world.ultiFlashMs > 0L) {
-                val alpha = (world.ultiFlashMs / 340f).coerceIn(0f, 1f) * 0.36f
-                drawRect(color = world.ultiFlashColor.copy(alpha = alpha))
-            }
-
-            // Slash / Special / Ulti effects behind/around fighters
-            world.slashEffects.forEach { fx ->
-                val progress = (fx.ageMs.toFloat() / fx.maxAgeMs.toFloat()).coerceIn(0f, 1f)
-                val fxX = fx.x * w
-                val fxY = groundY - fx.y * (h * 0.65f) - h * 0.14f
-                val reachPx = fx.range * w
-
-                when (fx.effectType) {
-                    MoveEffectType.ULTI_PILLAR -> {
-                        val pillarX = (fx.x + fx.facing * 0.25f) * w
-                        val pillarW = w * 0.18f * (1f - progress * 0.35f)
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(Color.Transparent, fx.color.copy(alpha = 0.85f * (1f - progress)), Color.Transparent),
-                                startX = pillarX - pillarW,
-                                endX = pillarX + pillarW
-                            ),
-                            topLeft = Offset(pillarX - pillarW, 0f),
-                            size = Size(pillarW * 2f, groundY)
-                        )
-                    }
-                    MoveEffectType.ULTI_SLASH -> {
-                        drawLine(
-                            color = fx.color.copy(alpha = 1f - progress),
-                            start = Offset(fxX, fxY),
-                            end = Offset(fxX + fx.facing * reachPx, fxY - h * 0.04f),
-                            strokeWidth = (1f - progress) * 28f,
-                            cap = StrokeCap.Round
-                        )
-                    }
-                    MoveEffectType.SHOCKWAVE, MoveEffectType.ULTI_SLAM -> {
-                        val r = reachPx * (0.25f + progress * 0.85f)
-                        drawOval(
-                            color = fx.color.copy(alpha = (1f - progress) * 0.85f),
-                            topLeft = Offset(fxX - r, groundY - r * 0.24f),
-                            size = Size(r * 2f, r * 0.45f),
-                            style = Stroke(width = 9f * (1f - progress) + 2f)
-                        )
-                    }
-                    else -> {
-                        val arcOffset = fx.facing * reachPx * 0.55f
-                        drawArc(
-                            color = fx.color.copy(alpha = (1f - progress) * 0.9f),
-                            startAngle = if (fx.facing > 0) -65f else 115f,
-                            sweepAngle = 130f,
-                            useCenter = false,
-                            topLeft = Offset(fxX + arcOffset - h * 0.12f, fxY - h * 0.12f),
-                            size = Size(h * 0.24f, h * 0.24f),
-                            style = Stroke(width = 14f * (1f - progress) + 3f, cap = StrokeCap.Round)
-                        )
-                    }
-                }
-            }
-
-            // Draw both fighters
-            drawFighter(
-                f = world.p1,
-                arenaW = w,
-                arenaH = h,
-                groundY = groundY,
-                timeMs = timeMs
-            )
-            drawFighter(
-                f = world.p2,
-                arenaW = w,
-                arenaH = h,
-                groundY = groundY,
-                timeMs = timeMs
-            )
-
-            // Draw projectiles (fireballs / tornados)
-            world.projectiles.forEach { proj ->
-                val px = proj.x * w
-                val py = groundY - proj.y * (h * 0.65f) - h * 0.09f
-                val r = h * 0.065f
-                if (proj.isTornado) {
-                    for (ring in 0..3) {
-                        val ry = py - r * 1.1f + ring * (r * 0.6f)
-                        val rw = r * (1.3f - ring * 0.2f)
-                        drawOval(
-                            color = proj.color.copy(alpha = 0.82f),
-                            topLeft = Offset(px - rw, ry - r * 0.25f),
-                            size = Size(rw * 2f, r * 0.5f),
-                            style = Stroke(width = 5f)
-                        )
-                    }
-                } else {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Color.White, proj.accentColor, proj.color, Color.Transparent),
-                            center = Offset(px, py),
-                            radius = r * 1.7f
+            translate(left = shakeX, top = shakeY) {
+                // Perspective glossy arcade floor
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            world.stage.floorColor.copy(alpha = 0.88f),
+                            Color(0xFF04060C)
                         ),
-                        radius = r * 1.7f,
+                        startY = groundY,
+                        endY = h
+                    ),
+                    topLeft = Offset(0f, groundY),
+                    size = Size(w, h - groundY)
+                )
+
+                // Perspective grid lines + horizontal depth lines
+                for (i in 0..10) {
+                    val topX = w * (i / 10f)
+                    val bottomX = w * 0.5f + (topX - w * 0.5f) * 1.55f
+                    drawLine(
+                        color = world.stage.accentGlow.copy(alpha = 0.22f),
+                        start = Offset(topX, groundY),
+                        end = Offset(bottomX, h),
+                        strokeWidth = 2f
+                    )
+                }
+                for (row in 1..2) {
+                    val ry = groundY + (h - groundY) * (row / 3f)
+                    drawLine(
+                        color = world.stage.accentGlow.copy(alpha = 0.14f),
+                        start = Offset(0f, ry),
+                        end = Offset(w, ry),
+                        strokeWidth = 1.5f
+                    )
+                }
+
+                // Glowing horizon trim
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            world.stage.accentGlow.copy(alpha = 0.45f),
+                            world.stage.accentGlow,
+                            world.stage.accentGlow.copy(alpha = 0.45f)
+                        )
+                    ),
+                    start = Offset(0f, groundY),
+                    end = Offset(w, groundY),
+                    strokeWidth = 5f
+                )
+
+                // Ambient stage particles (sakura petals or neon embers)
+                val isDojo = world.stage.id == "sunset_dojo"
+                for (pIdx in 0..15) {
+                    val t = ((timeMs * 0.00016f) + pIdx * 0.11f) % 1f
+                    val px = ((pIdx * 0.068f + sin(timeMs * 0.0012f + pIdx) * 0.03f) * w)
+                    val py = if (isDojo) t * groundY else (1f - t) * groundY
+                    drawCircle(
+                        color = if (isDojo) Color(0xFFFFB2C8).copy(alpha = 0.60f) else world.stage.accentGlow.copy(alpha = 0.45f),
+                        radius = if (isDojo) 4.2f else 3f,
                         center = Offset(px, py)
                     )
                 }
-            }
 
-            // Hit sparks
-            world.sparks.forEach { spark ->
-                val p = (spark.ageMs.toFloat() / spark.maxAgeMs.toFloat()).coerceIn(0f, 1f)
-                val sx = spark.x * w
-                val sy = groundY - spark.y * (h * 0.65f)
-                val maxR = if (spark.isUlti) h * 0.20f else h * 0.11f
-                val count = if (spark.isUlti) 10 else 6
-                for (i in 0 until count) {
-                    val angle = (i.toFloat() / count) * (2f * PI.toFloat())
-                    val dist = maxR * p
-                    drawLine(
-                        color = spark.color.copy(alpha = 1f - p),
-                        start = Offset(sx + cos(angle) * dist * 0.3f, sy + sin(angle) * dist * 0.3f),
-                        end = Offset(sx + cos(angle) * dist, sy + sin(angle) * dist),
-                        strokeWidth = if (spark.isUlti) 6f else 4f,
-                        cap = StrokeCap.Round
+                // Dramatic Ulti darkening + anime speed-lines!
+                val ultiActive = world.ultiFlashMs > 0L ||
+                    world.p1.action == CombatAction.ULTI ||
+                    world.p2.action == CombatAction.ULTI ||
+                    world.p1.chargingMegaPunch ||
+                    world.p2.chargingMegaPunch
+                if (ultiActive) {
+                    val flashAlpha = if (world.ultiFlashMs > 0L) (world.ultiFlashMs / 360f).coerceIn(0f, 1f) * 0.30f else 0.18f
+                    drawRect(color = Color(0xFF03040A).copy(alpha = 0.36f))
+                    drawRect(color = world.ultiFlashColor.copy(alpha = flashAlpha))
+                    val focusFighter = when {
+                        world.p1.action == CombatAction.ULTI || world.p1.chargingMegaPunch -> world.p1
+                        world.p2.action == CombatAction.ULTI || world.p2.chargingMegaPunch -> world.p2
+                        else -> world.p1
+                    }
+                    drawAnimeSpeedLines(
+                        center = Offset(focusFighter.x * w, groundY - focusFighter.y * h * 0.6f - h * 0.16f),
+                        w = w,
+                        h = h,
+                        color = focusFighter.def.primaryColor,
+                        timeMs = timeMs
                     )
                 }
-            }
 
-            // Floating damage / status popups
-            world.popups.forEach { popup ->
-                val alpha = (1f - popup.ageMs.toFloat() / popup.maxAgeMs.toFloat()).coerceIn(0f, 1f)
-                drawPopupText(
-                    textMeasurer = textMeasurer,
-                    text = popup.text,
-                    x = popup.x * w,
-                    y = (groundY - popup.y * (h * 0.65f) - h * 0.24f).coerceAtLeast(18f),
-                    color = popup.color.copy(alpha = alpha),
-                    isBig = popup.isCritical
-                )
+                // Fighter floor glow reflections
+                drawFighterReflection(world.p1, w, h, groundY)
+                drawFighterReflection(world.p2, w, h, groundY)
+
+                // Detailed cel-shaded 2D fighters
+                drawDetailedFighter(world.p1, w, h, groundY, timeMs)
+                drawDetailedFighter(world.p2, w, h, groundY, timeMs)
+
+                // Coiled vine snare overlay when caught in Jardin's Ulti
+                if (world.p1.vineSnaredMs > 0L) drawVineSnare(world.p1, w, h, groundY, timeMs)
+                if (world.p2.vineSnaredMs > 0L) drawVineSnare(world.p2, w, h, groundY, timeMs)
+
+                // Signature Special & Ulti effects OVER characters so giant fists & vines pop!
+                world.slashEffects.forEach { fx ->
+                    drawSpecialEffect(fx = fx, w = w, h = h, groundY = groundY, timeMs = timeMs)
+                }
+
+                // Impact shockwave rings + anime starburst sparks
+                world.sparks.forEach { spark ->
+                    val p = (spark.ageMs.toFloat() / spark.maxAgeMs.toFloat()).coerceIn(0f, 1f)
+                    val sx = spark.x * w
+                    val sy = groundY - spark.y * (h * 0.64f)
+                    val maxR = if (spark.isUlti) h * 0.28f else h * 0.14f
+                    val count = if (spark.isUlti) 14 else 8
+
+                    // Expanding shockwave ring
+                    drawCircle(
+                        color = spark.color.copy(alpha = (1f - p) * 0.78f),
+                        radius = maxR * (0.25f + p * 0.95f),
+                        center = Offset(sx, sy),
+                        style = Stroke(width = (1f - p) * (if (spark.isUlti) 10f else 5.5f))
+                    )
+                    // Bright white core flash
+                    drawCircle(
+                        color = Color.White.copy(alpha = (1f - p) * 0.92f),
+                        radius = maxR * 0.28f * (1f - p),
+                        center = Offset(sx, sy)
+                    )
+                    // Jagged comic rays
+                    for (i in 0 until count) {
+                        val angle = (i.toFloat() / count) * (2f * PI.toFloat()) + p * 0.45f
+                        val dist = maxR * (0.3f + p * 0.85f)
+                        drawLine(
+                            color = spark.color.copy(alpha = 1f - p),
+                            start = Offset(sx + cos(angle) * dist * 0.22f, sy + sin(angle) * dist * 0.22f),
+                            end = Offset(sx + cos(angle) * dist, sy + sin(angle) * dist),
+                            strokeWidth = if (spark.isUlti) 7.5f else 4.5f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
+
+                // Outlined floating combat popups
+                world.popups.forEach { popup ->
+                    val alpha = (1f - popup.ageMs.toFloat() / popup.maxAgeMs.toFloat()).coerceIn(0f, 1f)
+                    drawPopupText(
+                        textMeasurer = textMeasurer,
+                        text = popup.text,
+                        x = popup.x * w,
+                        y = (groundY - popup.y * (h * 0.64f) - h * 0.27f).coerceAtLeast(16f),
+                        color = popup.color.copy(alpha = alpha),
+                        isBig = popup.isCritical,
+                        alpha = alpha
+                    )
+                }
             }
         }
     }
 }
 
-private fun DrawScope.drawFighter(
-    f: FighterRuntime,
-    arenaW: Float,
-    arenaH: Float,
+private fun DrawScope.drawAnimeSpeedLines(
+    center: Offset,
+    w: Float,
+    h: Float,
+    color: Color,
+    timeMs: Long
+) {
+    val maxDist = hypot(w, h)
+    val lineCount = 22
+    val phase = (timeMs * 0.004f)
+    for (i in 0 until lineCount) {
+        val angle = (i.toFloat() / lineCount) * (2f * PI.toFloat()) + sin(phase + i) * 0.03f
+        val innerR = h * (0.28f + (i % 3) * 0.08f)
+        drawLine(
+            color = color.copy(alpha = 0.26f),
+            start = Offset(center.x + cos(angle) * innerR, center.y + sin(angle) * innerR),
+            end = Offset(center.x + cos(angle) * maxDist, center.y + sin(angle) * maxDist),
+            strokeWidth = if (i % 2 == 0) 4f else 2f
+        )
+    }
+}
+
+private fun DrawScope.drawSpecialEffect(
+    fx: SlashEffect,
+    w: Float,
+    h: Float,
     groundY: Float,
     timeMs: Long
 ) {
-    val cx = f.x * arenaW
-    val jumpOffset = f.y * (arenaH * 0.65f)
-    val bob = if (f.action == CombatAction.IDLE) sin(timeMs / 180.0).toFloat() * (arenaH * 0.008f) else 0f
-    val footY = groundY - jumpOffset
+    val progress = (fx.ageMs.toFloat() / fx.maxAgeMs.toFloat()).coerceIn(0f, 1f)
+    val fade = (1f - progress).coerceIn(0f, 1f)
+    val fxX = fx.x * w
+    val fxY = groundY - fx.y * (h * 0.64f) - h * 0.15f
+    val reachPx = fx.range * w
 
-    val scale = if (f.def.visualStyle == FighterVisualStyle.STEEL_COLOSSUS) 1.15f else 1.0f
-    val bodyH = arenaH * 0.25f * scale
-    val bodyW = arenaH * 0.095f * scale
-
-    // Ground shadow
-    val shadowScale = (1f - f.y * 1.4f).coerceIn(0.35f, 1f)
-    drawOval(
-        color = Color.Black.copy(alpha = 0.45f * shadowScale),
-        topLeft = Offset(cx - bodyW * 0.85f * shadowScale, groundY - arenaH * 0.015f),
-        size = Size(bodyW * 1.7f * shadowScale, arenaH * 0.03f)
-    )
-
-    val isHit = f.action == CombatAction.HIT_STUN
-    val isKo = f.action == CombatAction.KO
-    val torsoTint = if (isHit && (timeMs / 60L) % 2L == 0L) Color.White else f.def.primaryColor
-
-    val baseTopY = if (isKo) groundY - bodyW * 0.6f else footY - bodyH + bob
-    val lean = when (f.action) {
-        CombatAction.CLASSIC, CombatAction.BASE_ABILITY, CombatAction.ULTI -> f.facing * bodyW * 0.28f
-        CombatAction.HIT_STUN -> -f.facing * bodyW * 0.22f
-        else -> 0f
-    }
-
-    if (isKo) {
-        // Knocked out horizontal silhouette
-        drawRoundRect(
-            color = f.def.primaryColor.copy(alpha = 0.8f),
-            topLeft = Offset(cx - bodyH * 0.4f, groundY - bodyW * 0.65f),
-            size = Size(bodyH * 0.8f, bodyW * 0.55f),
-            cornerRadius = CornerRadius(12f, 12f)
-        )
-        return
-    }
-
-    // Walk stride animation
-    val stride = if (f.action == CombatAction.WALK) sin(timeMs / 85.0).toFloat() * bodyW * 0.38f else bodyW * 0.25f
-
-    // Legs
-    drawLine(
-        color = Color(0xFF1F2437),
-        start = Offset(cx - bodyW * 0.22f, baseTopY + bodyH * 0.58f),
-        end = Offset(cx - stride, footY),
-        strokeWidth = bodyW * 0.26f,
-        cap = StrokeCap.Round
-    )
-    drawLine(
-        color = Color(0xFF1A1E2E),
-        start = Offset(cx + bodyW * 0.22f, baseTopY + bodyH * 0.58f),
-        end = Offset(cx + stride, footY),
-        strokeWidth = bodyW * 0.26f,
-        cap = StrokeCap.Round
-    )
-
-    // Torso
-    drawRoundRect(
-        color = torsoTint,
-        topLeft = Offset(cx + lean - bodyW * 0.45f, baseTopY + bodyH * 0.24f),
-        size = Size(bodyW * 0.90f, bodyH * 0.40f),
-        cornerRadius = CornerRadius(10f, 10f)
-    )
-
-    // Head
-    val headCenter = Offset(cx + lean, baseTopY + bodyH * 0.13f)
-    drawCircle(
-        color = Color(0xFFEBD2BE),
-        radius = bodyW * 0.34f,
-        center = headCenter
-    )
-
-    // Fighter visual distinction
-    when (f.def.visualStyle) {
-        FighterVisualStyle.SHOTO_FLAME -> {
-            drawRect(
-                color = f.def.primaryColor,
-                topLeft = Offset(headCenter.x - bodyW * 0.36f, headCenter.y - bodyW * 0.18f),
-                size = Size(bodyW * 0.72f, bodyW * 0.14f)
+    when (fx.effectType) {
+        // GLITCHERMAN: Bayonetta-style Cyber Portal + Sculpted Giant Armored Holo-Fist!
+        MoveEffectType.BAYONETTA_FIST, MoveEffectType.ULTI_GLITCH_BARRAGE -> {
+            val isUlti = fx.effectType == MoveEffectType.ULTI_GLITCH_BARRAGE
+            val portalX = fxX + fx.facing * w * 0.055f
+            val portalR = h * (if (isUlti) 0.17f else 0.135f)
+            drawBayonettaPortalAndFist(
+                portalCenter = Offset(portalX, fxY),
+                facing = fx.facing.toFloat(),
+                portalR = portalR,
+                reachPx = reachPx,
+                progress = progress,
+                fade = fade,
+                primary = fx.color,
+                accent = fx.accentColor,
+                isBig = isUlti,
+                timeMs = timeMs
             )
-            drawLine(
-                color = f.def.accentColor,
-                start = Offset(headCenter.x - f.facing * bodyW * 0.32f, headCenter.y - bodyW * 0.12f),
-                end = Offset(headCenter.x - f.facing * bodyW * 0.75f, headCenter.y + bodyW * 0.08f),
-                strokeWidth = 5f,
-                cap = StrokeCap.Round
-            )
-        }
-        FighterVisualStyle.CYBER_NINJA -> {
-            drawLine(
-                color = f.def.primaryColor,
-                start = Offset(headCenter.x, headCenter.y - bodyW * 0.04f),
-                end = Offset(headCenter.x + f.facing * bodyW * 0.34f, headCenter.y - bodyW * 0.04f),
-                strokeWidth = 6f,
-                cap = StrokeCap.Round
-            )
-        }
-        FighterVisualStyle.STEEL_COLOSSUS -> {
-            drawCircle(
-                color = f.def.accentColor,
-                radius = bodyW * 0.15f,
-                center = Offset(cx + lean, baseTopY + bodyH * 0.40f)
-            )
-        }
-        FighterVisualStyle.WIND_MAGE -> {
-            drawCircle(
-                color = f.def.accentColor.copy(alpha = 0.7f),
-                radius = bodyW * 0.48f,
-                center = headCenter,
-                style = Stroke(width = 3.5f)
-            )
-        }
-        FighterVisualStyle.NEON_RONIN -> {
-            val hat = Path().apply {
-                moveTo(headCenter.x, headCenter.y - bodyW * 0.55f)
-                lineTo(headCenter.x - bodyW * 0.56f, headCenter.y - bodyW * 0.10f)
-                lineTo(headCenter.x + bodyW * 0.56f, headCenter.y - bodyW * 0.10f)
-                close()
+            if (isUlti) {
+                drawBayonettaPortalAndFist(
+                    portalCenter = Offset(portalX + fx.facing * w * 0.04f, fxY - h * 0.11f),
+                    facing = fx.facing.toFloat(),
+                    portalR = portalR * 0.78f,
+                    reachPx = reachPx * 0.92f,
+                    progress = ((progress - 0.12f) * 1.15f).coerceIn(0f, 1f),
+                    fade = fade,
+                    primary = fx.accentColor,
+                    accent = fx.color,
+                    isBig = false,
+                    timeMs = timeMs
+                )
             }
-            drawPath(hat, color = Color(0xFF1D2234))
-            drawPath(hat, color = f.def.accentColor, style = Stroke(width = 2.5f))
+        }
+
+        // JARDIN: Cracked glowing earth + thick erupting thorny vines with leaves & spores!
+        MoveEffectType.VINE_WHIP, MoveEffectType.ULTI_VINE_PUNCH -> {
+            val isUlti = fx.effectType == MoveEffectType.ULTI_VINE_PUNCH
+            val vineReach = reachPx * (0.30f + (progress * 1.9f).coerceAtMost(0.72f))
+
+            // Glowing earth fissure line in front of Jardin
+            drawLine(
+                color = Color(0xFFFFC400).copy(alpha = fade * 0.85f),
+                start = Offset(fxX + fx.facing * 10f, groundY),
+                end = Offset(fxX + fx.facing * vineReach, groundY),
+                strokeWidth = if (isUlti) 8f else 5f,
+                cap = StrokeCap.Round
+            )
+
+            val spikes = if (isUlti) 7 else 5
+            for (s in 1..spikes) {
+                val frac = s / spikes.toFloat()
+                val baseX = fxX + fx.facing * (vineReach * frac)
+                val vineH = h * (if (isUlti) 0.28f else 0.18f) * sin(frac * PI).toFloat().coerceAtLeast(0.35f)
+                val sway = sin(timeMs * 0.018f + s) * 10f
+                val tipX = baseX + fx.facing * 18f + sway * 0.4f
+                val tipY = groundY - vineH
+
+                val vineBody = Path().apply {
+                    moveTo(baseX - 13f, groundY)
+                    quadraticTo(baseX + sway - 8f, groundY - vineH * 0.55f, tipX, tipY)
+                    quadraticTo(baseX + sway + 14f, groundY - vineH * 0.45f, baseX + 13f, groundY)
+                    close()
+                }
+                drawPath(
+                    path = vineBody,
+                    brush = Brush.verticalGradient(
+                        listOf(Color(0xFF69F0AE).copy(alpha = fade), Color(0xFF1B5E20).copy(alpha = fade)),
+                        startY = tipY,
+                        endY = groundY
+                    )
+                )
+                drawPath(vineBody, color = Color(0xFF072610).copy(alpha = fade), style = Stroke(width = 3f, join = StrokeJoin.Round))
+
+                // Golden bud / leaf flare at vine tip
+                drawCircle(
+                    color = Color(0xFFFFC400).copy(alpha = fade * 0.9f),
+                    radius = if (isUlti) 6.5f else 4.5f,
+                    center = Offset(tipX, tipY)
+                )
+            }
+        }
+
+        // DARON BRÉSILIEN: Sweeping low ground crescent & kicked-up dust clouds (Balayette!)
+        MoveEffectType.SWEEP_KICK, MoveEffectType.ULTI_TROPICAL_SLAM -> {
+            val sweepW = reachPx * (0.45f + progress * 0.55f)
+            val arcTop = groundY - h * 0.13f
+            drawArc(
+                brush = Brush.horizontalGradient(listOf(fx.accentColor.copy(alpha = fade), fx.color.copy(alpha = fade))),
+                startAngle = if (fx.facing > 0) -30f else 150f,
+                sweepAngle = 62f,
+                useCenter = false,
+                topLeft = Offset(fxX - sweepW * 0.18f, arcTop),
+                size = Size(sweepW, h * 0.16f),
+                style = Stroke(width = 18f * fade + 5f, cap = StrokeCap.Round)
+            )
+            // Floor dust puffs
+            for (d in 1..4) {
+                val dx = fxX + fx.facing * sweepW * (d * 0.22f)
+                val dr = (10f + d * 4f) * (0.5f + progress * 0.7f)
+                drawCircle(
+                    color = Color(0xFFE0D2B4).copy(alpha = fade * 0.45f),
+                    radius = dr,
+                    center = Offset(dx, groundY - dr * 0.4f)
+                )
+            }
+        }
+
+        // MAÎTRE CHEN: Crisp golden-jade crescent slash & rapid chopstick needles
+        MoveEffectType.CHOPSTICK_FLURRY, MoveEffectType.ULTI_CHOPSTICKS -> {
+            val count = if (fx.effectType == MoveEffectType.ULTI_CHOPSTICKS) 8 else 5
+            for (c in 0 until count) {
+                val offsetY = (c - count / 2f) * (h * 0.032f)
+                val len = reachPx * (0.60f + (c % 3) * 0.18f)
+                val startPt = Offset(fxX + fx.facing * 14f, fxY + offsetY)
+                val endPt = Offset(fxX + fx.facing * len, fxY + offsetY * 0.65f)
+                drawLine(
+                    color = Color(0xFF070910).copy(alpha = fade * 0.7f),
+                    start = startPt,
+                    end = endPt,
+                    strokeWidth = 9f * fade + 3f,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        listOf(
+                            Color.White.copy(alpha = fade),
+                            if (c % 2 == 0) fx.accentColor.copy(alpha = fade) else Color(0xFF00E676).copy(alpha = fade)
+                        )
+                    ),
+                    start = startPt,
+                    end = endPt,
+                    strokeWidth = 5.5f * fade + 1.8f,
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        // Classic anime crescent slash
+        MoveEffectType.MELEE -> {
+            val arcOffset = fx.facing * reachPx * 0.56f
+            drawArc(
+                color = Color.White.copy(alpha = fade * 0.92f),
+                startAngle = if (fx.facing > 0) -55f else 125f,
+                sweepAngle = 110f,
+                useCenter = false,
+                topLeft = Offset(fxX + arcOffset - h * 0.11f, fxY - h * 0.11f),
+                size = Size(h * 0.22f, h * 0.22f),
+                style = Stroke(width = 14f * fade + 3f, cap = StrokeCap.Round)
+            )
+            drawArc(
+                color = fx.color.copy(alpha = fade * 0.95f),
+                startAngle = if (fx.facing > 0) -60f else 120f,
+                sweepAngle = 120f,
+                useCenter = false,
+                topLeft = Offset(fxX + arcOffset - h * 0.115f, fxY - h * 0.115f),
+                size = Size(h * 0.23f, h * 0.23f),
+                style = Stroke(width = 8f * fade + 2f, cap = StrokeCap.Round)
+            )
         }
     }
+}
 
-    // Attacking / Guarding arm + weapon
-    val armStart = Offset(cx + lean + f.facing * bodyW * 0.25f, baseTopY + bodyH * 0.34f)
-    val armEnd = when (f.action) {
-        CombatAction.CLASSIC -> Offset(armStart.x + f.facing * bodyW * 0.95f, armStart.y - bodyH * 0.02f)
-        CombatAction.BASE_ABILITY -> Offset(armStart.x + f.facing * bodyW * 1.15f, armStart.y - bodyH * 0.05f)
-        CombatAction.ULTI -> Offset(armStart.x + f.facing * bodyW * 1.25f, armStart.y - bodyH * 0.18f)
-        CombatAction.BLOCK -> Offset(armStart.x + f.facing * bodyW * 0.35f, armStart.y - bodyH * 0.14f)
-        else -> Offset(armStart.x + f.facing * bodyW * 0.45f, armStart.y + bodyH * 0.10f)
-    }
-
-    drawLine(
-        color = f.def.accentColor,
-        start = armStart,
-        end = armEnd,
-        strokeWidth = bodyW * 0.22f,
-        cap = StrokeCap.Round
+private fun DrawScope.drawBayonettaPortalAndFist(
+    portalCenter: Offset,
+    facing: Float,
+    portalR: Float,
+    reachPx: Float,
+    progress: Float,
+    fade: Float,
+    primary: Color,
+    accent: Color,
+    isBig: Boolean,
+    timeMs: Long
+) {
+    // 1. Cyber-Runic Portal Rings
+    drawOval(
+        brush = Brush.radialGradient(
+            colors = listOf(accent.copy(alpha = fade * 0.55f), Color.Transparent),
+            center = portalCenter,
+            radius = portalR * 1.25f
+        ),
+        topLeft = Offset(portalCenter.x - portalR * 0.55f, portalCenter.y - portalR),
+        size = Size(portalR * 1.1f, portalR * 2f)
+    )
+    drawOval(
+        color = primary.copy(alpha = fade),
+        topLeft = Offset(portalCenter.x - portalR * 0.42f, portalCenter.y - portalR),
+        size = Size(portalR * 0.84f, portalR * 2f),
+        style = Stroke(width = 6f)
+    )
+    drawOval(
+        color = accent.copy(alpha = fade * 0.9f),
+        topLeft = Offset(portalCenter.x - portalR * 0.28f, portalCenter.y - portalR * 0.72f),
+        size = Size(portalR * 0.56f, portalR * 1.44f),
+        style = Stroke(width = 3.5f)
     )
 
-    // Ronin katana or Ninja blade when attacking
-    if (f.def.visualStyle == FighterVisualStyle.NEON_RONIN || f.def.visualStyle == FighterVisualStyle.CYBER_NINJA) {
-        val bladeLen = if (f.action in setOf(CombatAction.CLASSIC, CombatAction.BASE_ABILITY, CombatAction.ULTI)) bodyW * 1.15f else bodyW * 0.65f
-        drawLine(
-            color = f.def.accentColor,
-            start = armEnd,
-            end = Offset(armEnd.x + f.facing * bladeLen, armEnd.y - bodyH * 0.06f),
-            strokeWidth = 5f,
-            cap = StrokeCap.Round
+    // 2. Colossal Articulated Holo-Forearm & Clenched Armored Fist emerging from portal
+    val fistTravel = (progress * 1.65f).coerceIn(0f, 1f)
+    val fistCenterX = portalCenter.x + facing * (reachPx * 0.84f * fistTravel)
+    val fistH = portalR * (if (isBig) 1.55f else 1.28f)
+    val fistW = fistH * 1.22f
+
+    // Forearm beam connecting portal to fist cuff
+    drawRect(
+        brush = Brush.horizontalGradient(
+            colors = listOf(accent.copy(alpha = fade * 0.7f), primary.copy(alpha = fade * 0.9f))
+        ),
+        topLeft = Offset(
+            x = if (facing > 0) portalCenter.x else fistCenterX,
+            y = portalCenter.y - fistH * 0.30f
+        ),
+        size = Size(kotlin.math.abs(fistCenterX - portalCenter.x).coerceAtLeast(8f), fistH * 0.60f)
+    )
+
+    // Fist main block
+    val fistLeft = fistCenterX - fistW * 0.5f
+    val fistTop = portalCenter.y - fistH * 0.45f
+    drawRoundRect(
+        brush = Brush.verticalGradient(
+            colors = listOf(primary.copy(alpha = fade * 0.95f), accent.copy(alpha = fade * 0.92f))
+        ),
+        topLeft = Offset(fistLeft, fistTop),
+        size = Size(fistW, fistH * 0.90f),
+        cornerRadius = CornerRadius(20f, 20f)
+    )
+    drawRoundRect(
+        color = Color(0xFF070910).copy(alpha = fade),
+        topLeft = Offset(fistLeft, fistTop),
+        size = Size(fistW, fistH * 0.90f),
+        cornerRadius = CornerRadius(20f, 20f),
+        style = Stroke(width = 4.5f)
+    )
+
+    // 4 Articulated Knuckle Blocks at the impact front!
+    val knuckleX = fistCenterX + facing * (fistW * 0.38f)
+    for (k in 0..3) {
+        val ky = fistTop + fistH * (0.14f + k * 0.20f)
+        drawRoundRect(
+            color = Color.White.copy(alpha = fade * 0.92f),
+            topLeft = Offset(knuckleX - fistW * 0.14f, ky - fistH * 0.08f),
+            size = Size(fistW * 0.28f, fistH * 0.16f),
+            cornerRadius = CornerRadius(8f, 8f)
+        )
+        drawRoundRect(
+            color = Color(0xFF070910).copy(alpha = fade),
+            topLeft = Offset(knuckleX - fistW * 0.14f, ky - fistH * 0.08f),
+            size = Size(fistW * 0.28f, fistH * 0.16f),
+            cornerRadius = CornerRadius(8f, 8f),
+            style = Stroke(width = 2.5f)
         )
     }
 
-    // Guard energy shield
-    if (f.isBlocking) {
-        drawArc(
-            color = GuardBlue.copy(alpha = 0.85f),
-            startAngle = if (f.facing > 0) -70f else 110f,
-            sweepAngle = 140f,
-            useCenter = false,
-            topLeft = Offset(cx - bodyW * 0.9f, baseTopY + bodyH * 0.05f),
-            size = Size(bodyW * 1.8f, bodyH * 0.8f),
-            style = Stroke(width = 7f, cap = StrokeCap.Round)
-        )
+    // Supersonic air shockwave cone ahead of fist
+    val coneX = fistCenterX + facing * fistW * 0.56f
+    val conePath = Path().apply {
+        moveTo(coneX + facing * fistW * 0.26f, portalCenter.y)
+        lineTo(coneX - facing * fistW * 0.12f, portalCenter.y - fistH * 0.58f)
+        lineTo(coneX, portalCenter.y)
+        lineTo(coneX - facing * fistW * 0.12f, portalCenter.y + fistH * 0.58f)
+        close()
     }
-
-    // Ulti ready aura ring at feet
-    if (f.ultiMeter >= 100) {
-        val pulse = 0.55f + 0.35f * sin(timeMs / 130.0).toFloat()
-        drawOval(
-            color = f.def.accentColor.copy(alpha = pulse),
-            topLeft = Offset(cx - bodyW * 0.95f, groundY - arenaH * 0.02f),
-            size = Size(bodyW * 1.9f, arenaH * 0.04f),
-            style = Stroke(width = 4f)
-        )
-    }
+    drawPath(conePath, color = Color.White.copy(alpha = fade * 0.72f))
 }
 
 private fun DrawScope.drawPopupText(
@@ -427,18 +540,26 @@ private fun DrawScope.drawPopupText(
     x: Float,
     y: Float,
     color: Color,
-    isBig: Boolean
+    isBig: Boolean,
+    alpha: Float
 ) {
+    val shadowStyle = TextStyle(
+        fontFamily = RussoOneFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = if (isBig) 19.sp else 14.sp,
+        color = Color(0xFF05070D).copy(alpha = alpha * 0.95f)
+    )
     val style = TextStyle(
         fontFamily = RussoOneFamily,
         fontWeight = FontWeight.Bold,
-        fontSize = if (isBig) 18.sp else 14.sp,
+        fontSize = if (isBig) 19.sp else 14.sp,
         color = color
     )
     val result = textMeasurer.measure(text = text, style = style)
+    val shadowResult = textMeasurer.measure(text = text, style = shadowStyle)
     val left = (x - result.size.width / 2f).coerceIn(8f, size.width - result.size.width - 8f)
-    drawText(
-        textLayoutResult = result,
-        topLeft = Offset(left, y)
-    )
+    drawText(textLayoutResult = shadowResult, topLeft = Offset(left + 2.5f, y + 2.5f))
+    drawText(textLayoutResult = result, topLeft = Offset(left, y))
 }
+
+private fun hypot(a: Float, b: Float): Float = kotlin.math.hypot(a.toDouble(), b.toDouble()).toFloat()

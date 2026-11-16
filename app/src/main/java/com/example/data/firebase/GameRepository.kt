@@ -52,7 +52,7 @@ class GameRepository(
                 val payload = mapOf(
                     "userId" to uid,
                     "displayName" to safeName,
-                    "favoriteFighterId" to "ryuji",
+                    "favoriteFighterId" to "glitcherman",
                     "wins" to 0L,
                     "losses" to 0L,
                     "createdAt" to FieldValue.serverTimestamp(),
@@ -141,7 +141,7 @@ class GameRepository(
 
     suspend fun createMatchRoom(
         hostName: String,
-        fighterId: String = "ryuji",
+        fighterId: String = "glitcherman",
         stageId: String = "cyber_street"
     ): Result<MatchRoom> {
         val uid = try {
@@ -162,7 +162,7 @@ class GameRepository(
             "status" to "waiting",
             "stageId" to stageId,
             "hostFighterId" to fighterId,
-            "guestFighterId" to "kaelith",
+            "guestFighterId" to "jardin",
             "hostReady" to false,
             "guestReady" to false,
             "roundNumber" to 1L,

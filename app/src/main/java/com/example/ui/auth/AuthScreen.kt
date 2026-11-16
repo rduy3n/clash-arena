@@ -152,7 +152,7 @@ fun AuthScreen(
                     FeatureRow(
                         icon = Icons.Default.Bolt,
                         tint = FlameOrange,
-                        title = "5 Combattants Équilibrés",
+                        title = "4 Combattants Équilibrés",
                         subtitle = "Coup Classique, Capacité de Base & Ultime dévastateur"
                     )
                     FeatureRow(
