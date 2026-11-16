@@ -210,7 +210,7 @@ private fun FighterRosterCard(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "VOIR COUPS & COMBOS",
+                    text = "VOIR LISTE DES COUPS",
                     style = MaterialTheme.typography.labelLarge,
                     color = fighter.primaryColor
                 )

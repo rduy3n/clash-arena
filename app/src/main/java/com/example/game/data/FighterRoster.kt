@@ -124,22 +124,22 @@ object FighterRoster {
             id = "cyber_street",
             name = "Rue Néo-Dojo",
             subtitle = "Asphalte humide & néons d'arcade",
-            backgroundRes = R.drawable.img_hero_arena,
-            floorColor = Color(0xFF12182B),
+            backgroundRes = R.drawable.img_arena_cyber_gg,
+            floorColor = Color(0xFF10172B),
             accentGlow = Color(0xFF00E5FF)
         ),
         ArenaStage(
             id = "sunset_dojo",
             name = "Temple du Crépuscule",
             subtitle = "Toit sacré & cerisiers en fleurs",
-            backgroundRes = R.drawable.img_arena_dojo,
-            floorColor = Color(0xFF28171C),
+            backgroundRes = R.drawable.img_arena_dojo_gg,
+            floorColor = Color(0xFF28161C),
             accentGlow = Color(0xFFFF6D00)
         )
     )
 
     val fighters: List<FighterDefinition> = listOf(
-        // 1. GLITCHERMAN -> Budget = 52 + 68 + 62 + 43 + 75 = 300
+        // 1. GLITCHERMAN -> Budget = 54 + 66 + 62 + 44 + 74 = 300
         FighterDefinition(
             id = "glitcherman",
             name = "Glitcherman",
@@ -151,51 +151,51 @@ object FighterRoster {
             portraitRes = R.drawable.img_portrait_glitcherman,
             visualStyle = FighterVisualStyle.GLITCHERMAN,
             stats = FighterStats(
-                maxHp = 980,
+                maxHp = 1000,
                 moveSpeed = 0.50f,
                 jumpPower = 1.44f,
-                defensePercent = 7,
+                defensePercent = 8,
                 heightScale = 1.0f,
                 widthScale = 1.0f,
-                ratingHp = 52,
-                ratingAttack = 68,
+                ratingHp = 54,
+                ratingAttack = 66,
                 ratingSpeed = 62,
-                ratingDefense = 43,
-                ratingRange = 75
+                ratingDefense = 44,
+                ratingRange = 74
             ),
             classicMove = MoveSpec(
                 slot = MoveSlot.CLASSIC,
                 name = "Frappe Pixel",
                 description = "Coup rapide amplifié par un gant de données numériques.",
-                damage = 64,
-                cooldownMs = 400L,
+                damage = 60,
+                cooldownMs = 420L,
                 range = 0.18f,
                 startupMs = 80L,
                 activeMs = 210L,
                 knockback = 0.04f,
-                ultiGainOnHit = 16,
+                ultiGainOnHit = 15,
                 effectType = MoveEffectType.MELEE
             ),
             baseAbility = MoveSpec(
                 slot = MoveSlot.BASE_ABILITY,
                 name = "Méga-Poing Holo",
                 description = "Invoque à travers un portail un immense coup de poing holographique à longue portée.",
-                damage = 128,
-                cooldownMs = 2500L,
-                range = 0.42f,
-                startupMs = 150L,
+                damage = 122,
+                cooldownMs = 2700L,
+                range = 0.40f,
+                startupMs = 155L,
                 activeMs = 380L,
                 knockback = 0.12f,
-                ultiGainOnHit = 22,
+                ultiGainOnHit = 20,
                 effectType = MoveEffectType.BAYONETTA_FIST
             ),
             ultimateMove = MoveSpec(
                 slot = MoveSlot.ULTI,
                 name = "Surcharge Système",
                 description = "Déploie deux poings cybernétiques colossaux qui écrasent l'adversaire dans un déluge glitch.",
-                damage = 285,
+                damage = 375,
                 cooldownMs = 1000L,
-                range = 0.50f,
+                range = 0.48f,
                 startupMs = 150L,
                 activeMs = 600L,
                 knockback = 0.19f,
@@ -219,7 +219,7 @@ object FighterRoster {
             )
         ),
 
-        // 2. JARDIN -> Budget = 75 + 90 + 30 + 65 + 40 = 300
+        // 2. JARDIN -> Budget = 70 + 92 + 30 + 58 + 50 = 300
         FighterDefinition(
             id = "jardin",
             name = "Jardin",
@@ -231,42 +231,42 @@ object FighterRoster {
             portraitRes = R.drawable.img_portrait_jardin,
             visualStyle = FighterVisualStyle.JARDIN,
             stats = FighterStats(
-                maxHp = 1180,
+                maxHp = 1080,
                 moveSpeed = 0.36f,
                 jumpPower = 1.26f,
-                defensePercent = 17,
+                defensePercent = 12,
                 heightScale = 1.20f,
                 widthScale = 1.14f,
-                ratingHp = 75,
-                ratingAttack = 90,
+                ratingHp = 70,
+                ratingAttack = 92,
                 ratingSpeed = 30,
-                ratingDefense = 65,
-                ratingRange = 40
+                ratingDefense = 58,
+                ratingRange = 50
             ),
             classicMove = MoveSpec(
                 slot = MoveSlot.CLASSIC,
                 name = "Poing Racinaire",
                 description = "Coup lourd dévastateur à récupération plus lente.",
-                damage = 96,
-                cooldownMs = 700L,
+                damage = 90,
+                cooldownMs = 760L,
                 range = 0.20f,
-                startupMs = 140L,
+                startupMs = 145L,
                 activeMs = 280L,
                 knockback = 0.08f,
-                ultiGainOnHit = 20,
+                ultiGainOnHit = 13,
                 effectType = MoveEffectType.MELEE
             ),
             baseAbility = MoveSpec(
                 slot = MoveSlot.BASE_ABILITY,
                 name = "Fouet de Ronces",
                 description = "Projette de grosses lianes épineuses devant lui (cooldown lent, gros dégâts).",
-                damage = 148,
-                cooldownMs = 3400L,
+                damage = 138,
+                cooldownMs = 3600L,
                 range = 0.31f,
-                startupMs = 190L,
+                startupMs = 195L,
                 activeMs = 380L,
                 knockback = 0.13f,
-                ultiGainOnHit = 25,
+                ultiGainOnHit = 17,
                 effectType = MoveEffectType.VINE_WHIP
             ),
             ultimateMove = MoveSpec(
@@ -275,7 +275,7 @@ object FighterRoster {
                 description = "Fait pousser des vignes au sol devant lui : si elles touchent, il immobilise l'ennemi et charge un poing retirant 3/4 de la vie !",
                 damage = 750, // Calculé dynamiquement à 75% des PV max de l'adversaire
                 cooldownMs = 1000L,
-                range = 0.28f,
+                range = 0.24f,
                 startupMs = 140L,
                 activeMs = 1200L,
                 knockback = 0.25f,
@@ -299,7 +299,7 @@ object FighterRoster {
             )
         ),
 
-        // 3. LE CHINOIS (MAÎTRE CHEN) -> Budget = 50 + 60 + 85 + 45 + 60 = 300
+        // 3. LE CHINOIS (MAÎTRE CHEN) -> Budget = 52 + 60 + 86 + 44 + 58 = 300
         FighterDefinition(
             id = "le_chinois",
             name = "Maître Chen",
@@ -311,24 +311,24 @@ object FighterRoster {
             portraitRes = R.drawable.img_portrait_le_chinois,
             visualStyle = FighterVisualStyle.CHINOIS_BAGUETTES,
             stats = FighterStats(
-                maxHp = 960,
-                moveSpeed = 0.61f,
-                jumpPower = 1.52f,
-                defensePercent = 6,
+                maxHp = 980,
+                moveSpeed = 0.60f,
+                jumpPower = 1.50f,
+                defensePercent = 8,
                 heightScale = 0.96f,
                 widthScale = 0.95f,
-                ratingHp = 50,
+                ratingHp = 52,
                 ratingAttack = 60,
-                ratingSpeed = 85,
-                ratingDefense = 45,
-                ratingRange = 60
+                ratingSpeed = 86,
+                ratingDefense = 44,
+                ratingRange = 58
             ),
             classicMove = MoveSpec(
                 slot = MoveSlot.CLASSIC,
                 name = "Double Baguettes",
                 description = "Estocades rapides à deux baguettes avec récupération quasi instantanée.",
-                damage = 56,
-                cooldownMs = 290L,
+                damage = 50,
+                cooldownMs = 330L,
                 range = 0.20f,
                 startupMs = 55L,
                 activeMs = 175L,
@@ -340,8 +340,8 @@ object FighterRoster {
                 slot = MoveSlot.BASE_ABILITY,
                 name = "Tourbillon de Baguettes",
                 description = "Ruée éclair frappant avec une rafale dorée de baguettes tournoyantes.",
-                damage = 114,
-                cooldownMs = 2100L,
+                damage = 118,
+                cooldownMs = 2200L,
                 range = 0.34f,
                 startupMs = 95L,
                 activeMs = 300L,
@@ -353,9 +353,9 @@ object FighterRoster {
                 slot = MoveSlot.ULTI,
                 name = "Déluge Impérial",
                 description = "Enchaînement supersonique de baguettes d'or traversant toute l'arène.",
-                damage = 278,
+                damage = 360,
                 cooldownMs = 1000L,
-                range = 0.44f,
+                range = 0.45f,
                 startupMs = 100L,
                 activeMs = 560L,
                 knockback = 0.16f,
@@ -379,7 +379,7 @@ object FighterRoster {
             )
         ),
 
-        // 4. DARON BRÉSILIEN -> Budget = 95 + 65 + 35 + 75 + 30 = 300
+        // 4. DARON BRÉSILIEN -> Budget = 92 + 64 + 37 + 77 + 30 = 300
         FighterDefinition(
             id = "daron_bresilien",
             name = "Daron Brésilien",
@@ -391,49 +391,49 @@ object FighterRoster {
             portraitRes = R.drawable.img_portrait_daron_bresilien,
             visualStyle = FighterVisualStyle.DARON_BRESILIEN,
             stats = FighterStats(
-                maxHp = 1320,
-                moveSpeed = 0.38f,
-                jumpPower = 1.24f,
-                defensePercent = 22,
+                maxHp = 1280,
+                moveSpeed = 0.39f,
+                jumpPower = 1.25f,
+                defensePercent = 20,
                 heightScale = 1.05f,
                 widthScale = 1.32f,
-                ratingHp = 95,
-                ratingAttack = 65,
-                ratingSpeed = 35,
-                ratingDefense = 75,
+                ratingHp = 92,
+                ratingAttack = 64,
+                ratingSpeed = 37,
+                ratingDefense = 77,
                 ratingRange = 30
             ),
             classicMove = MoveSpec(
                 slot = MoveSlot.CLASSIC,
                 name = "Torgnole Tropicale",
                 description = "Grosse claque de tank au corps-à-corps qui repousse l'ennemi.",
-                damage = 84,
-                cooldownMs = 540L,
+                damage = 78,
+                cooldownMs = 550L,
                 range = 0.18f,
                 startupMs = 120L,
                 activeMs = 260L,
                 knockback = 0.08f,
-                ultiGainOnHit = 18,
+                ultiGainOnHit = 17,
                 effectType = MoveEffectType.MELEE
             ),
             baseAbility = MoveSpec(
                 slot = MoveSlot.BASE_ABILITY,
                 name = "Balayette Carioca",
                 description = "Glisse au ras du sol pour faucher les jambes de l'adversaire et le déstabiliser.",
-                damage = 126,
+                damage = 122,
                 cooldownMs = 2400L,
                 range = 0.34f,
                 startupMs = 110L,
                 activeMs = 340L,
                 knockback = 0.14f,
-                ultiGainOnHit = 24,
+                ultiGainOnHit = 23,
                 effectType = MoveEffectType.SWEEP_KICK
             ),
             ultimateMove = MoveSpec(
                 slot = MoveSlot.ULTI,
                 name = "Samba Bulldozer",
                 description = "Charge blindée en veste d'été suivie d'une méga-balayette sismique.",
-                damage = 310,
+                damage = 390,
                 cooldownMs = 1000L,
                 range = 0.40f,
                 startupMs = 140L,

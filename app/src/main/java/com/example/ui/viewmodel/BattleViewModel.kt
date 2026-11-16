@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GameRepository
 import com.example.data.firebase.MatchRoom
+import com.example.game.audio.SoundEffect
+import com.example.game.audio.SoundPlayer
 import com.example.game.data.BotDifficulty
 import com.example.game.data.FighterRoster
 import com.example.game.data.GameMode
@@ -12,6 +14,8 @@ import com.example.game.data.TrainingOpponentMode
 import com.example.game.engine.ArenaWorldState
 import com.example.game.engine.CombatAction
 import com.example.game.engine.CombatEngine
+import com.example.game.engine.FloatingPopup
+import com.example.game.engine.HitSpark
 import com.example.game.engine.MatchPhase
 import com.example.game.engine.PlayerInput
 import kotlinx.coroutines.CancellationException
@@ -23,13 +27,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 class BattleViewModel(
     private val repository: GameRepository,
-    private val currentUserId: String
+    private val currentUserId: String,
+    private val soundPlayer: SoundPlayer? = null
 ) : ViewModel() {
 
     private val engine = CombatEngine()
+    private var remoteEffectSeq = 900_000L
 
     private val _world = MutableStateFlow<ArenaWorldState?>(null)
     val world: StateFlow<ArenaWorldState?> = _world.asStateFlow()
@@ -100,6 +107,7 @@ class BattleViewModel(
                 val current = _world.value ?: continue
                 val updated = engine.step(current, dt, input, botDifficulty)
                 _world.value = updated
+                playEngineSounds(updated.soundEvents)
 
                 if (current.mode == GameMode.VS_BOT && updated.phase == MatchPhase.MATCH_OVER && !resultRecorded) {
                     resultRecorded = true
@@ -172,6 +180,7 @@ class BattleViewModel(
                 val input = consumeInput()
                 val updated = engine.stepOnlineLocal(current, dt, side, input)
                 _world.value = updated
+                playEngineSounds(updated.soundEvents)
 
                 val localFighter = if (side == 1) updated.p1 else updated.p2
                 val actionChanged = localFighter.actionSeq != lastSyncedActionSeq
@@ -235,6 +244,7 @@ class BattleViewModel(
         if (room.roundNumber != lastSyncedRound) {
             lastSyncedRound = room.roundNumber
             roundTransitionSent = false
+            soundPlayer?.play(SoundEffect.ROUND_START)
             _world.value = current.copy(
                 phase = MatchPhase.FIGHTING,
                 roundNumber = room.roundNumber.toInt(),
@@ -264,6 +274,8 @@ class BattleViewModel(
             }
             if (!resultRecorded && winnerSideInt != 0) {
                 resultRecorded = true
+                soundPlayer?.play(SoundEffect.KO_BOOM)
+                soundPlayer?.play(SoundEffect.VICTORY_FANFARE)
                 viewModelScope.launch {
                     repository.recordMatchResult(won = winnerSideInt == localSide)
                 }
@@ -281,14 +293,61 @@ class BattleViewModel(
         val p1Hp = (current.p1.def.stats.maxHp - room.p2DealtDmg.toInt()).coerceAtLeast(0)
         val p2Hp = (current.p2.def.stats.maxHp - room.p1DealtDmg.toInt()).coerceAtLeast(0)
 
+        val extraPopups = mutableListOf<FloatingPopup>()
+        val extraSparks = mutableListOf<HitSpark>()
+
+        val remoteDmgToLocal = if (localSide == 1) (current.p1.hp - p1Hp) else (current.p2.hp - p2Hp)
+        if (remoteDmgToLocal > 0) {
+            val victim = if (localSide == 1) current.p1 else current.p2
+            val isUlti = remoteDmgToLocal >= 200
+            val style = CombatEngine.classifyDamageVisual(
+                damage = remoteDmgToLocal,
+                blocked = victim.isBlocking,
+                isUlti = isUlti
+            )
+            val id = remoteEffectSeq++
+            val spread = ((id % 3L) - 1L).toFloat()
+            extraPopups += FloatingPopup(
+                id = id,
+                x = (victim.x + spread * 0.024f).coerceIn(0.08f, 0.92f),
+                y = victim.y + 0.16f * victim.def.stats.heightScale + 0.03f,
+                text = "-$remoteDmgToLocal",
+                color = style.color,
+                isCritical = style.isCritical,
+                vx = spread * 0.045f,
+                vy = if (style.isCritical) 0.28f else 0.22f,
+                scaleMultiplier = style.scale,
+                subLabel = style.subLabel,
+                maxAgeMs = if (isUlti) 1100L else 860L
+            )
+            extraSparks += HitSpark(
+                id = remoteEffectSeq++,
+                x = victim.x,
+                y = victim.y + 0.12f,
+                color = style.color,
+                isUlti = isUlti
+            )
+            val sfx = when {
+                victim.isBlocking && !isUlti -> SoundEffect.BLOCK_CLANG
+                isUlti -> SoundEffect.ULTI_IMPACT
+                remoteDmgToLocal >= 120 -> SoundEffect.HEAVY_HIT
+                else -> SoundEffect.CLASSIC_HIT
+            }
+            soundPlayer?.play(sfx)
+        }
+
         val updatedP1 = if (localSide == 1) {
             current.p1.copy(hp = p1Hp)
         } else {
+            val remoteAction = CombatAction.fromWire(room.p1Action)
+            if (room.p1ActionSeq != current.p1.actionSeq && remoteAction == CombatAction.ULTI) {
+                soundPlayer?.play(SoundEffect.ULTI_CINEMATIC)
+            }
             current.p1.copy(
                 x = room.p1X.toFloat(),
                 y = room.p1Y.toFloat(),
                 facing = room.p1Facing.toInt(),
-                action = CombatAction.fromWire(room.p1Action),
+                action = remoteAction,
                 actionSeq = room.p1ActionSeq,
                 isBlocking = room.p1Blocking,
                 ultiMeter = room.p1Ulti.toInt(),
@@ -299,11 +358,15 @@ class BattleViewModel(
         val updatedP2 = if (localSide == 2) {
             current.p2.copy(hp = p2Hp)
         } else {
+            val remoteAction = CombatAction.fromWire(room.p2Action)
+            if (room.p2ActionSeq != current.p2.actionSeq && remoteAction == CombatAction.ULTI) {
+                soundPlayer?.play(SoundEffect.ULTI_CINEMATIC)
+            }
             current.p2.copy(
                 x = room.p2X.toFloat(),
                 y = room.p2Y.toFloat(),
                 facing = room.p2Facing.toInt(),
-                action = CombatAction.fromWire(room.p2Action),
+                action = remoteAction,
                 actionSeq = room.p2ActionSeq,
                 isBlocking = room.p2Blocking,
                 ultiMeter = room.p2Ulti.toInt(),
@@ -316,8 +379,23 @@ class BattleViewModel(
             p2 = updatedP2,
             p1RoundsWon = room.p1RoundsWon.toInt(),
             p2RoundsWon = room.p2RoundsWon.toInt(),
-            roundNumber = room.roundNumber.toInt()
+            roundNumber = room.roundNumber.toInt(),
+            popups = current.popups + extraPopups,
+            sparks = current.sparks + extraSparks
         )
+    }
+
+    private fun playEngineSounds(events: List<SoundEffect>) {
+        if (events.isEmpty() || soundPlayer == null) return
+        events.forEach { sfx ->
+            val pitch = when (sfx) {
+                SoundEffect.CLASSIC_HIT,
+                SoundEffect.HEAVY_HIT,
+                SoundEffect.SWING_WHOOSH -> 0.94f + Random.nextFloat() * 0.12f
+                else -> 1f
+            }
+            soundPlayer.play(sfx, pitch)
+        }
     }
 
     // --- Input bindings ---

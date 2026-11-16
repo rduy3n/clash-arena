@@ -80,8 +80,16 @@ class CombatEngineTest {
             )
         }
 
-        // Trigger Jardin's Ulti (vines grow in front of him)
+        // Trigger Jardin's Ulti -> enters 2-second slow-motion Ulti cinematic
         world = engine.step(world, 20L, PlayerInput(ultiPressed = true))
+        assertTrue("2s slow-mo Ulti cinematic should start", world.ultiCinematic != null)
+
+        // Advance through the 2000ms slow-mo cinematic (100 * 20ms = 2000ms)
+        repeat(100) {
+            world = engine.step(world, 20L, PlayerInput())
+        }
+        assertTrue("2s slow-mo Ulti cinematic should finish", world.ultiCinematic == null)
+
         // Advance past startupMs (140ms) so vines hit & snare Chen
         repeat(10) {
             world = engine.step(world, 20L, PlayerInput())
@@ -118,5 +126,43 @@ class CombatEngineTest {
             world = engine.step(world, 20L, PlayerInput())
         }
         assertTrue("Balayette Carioca should damage grounded opponent", world.p2.hp < glitcherman.stats.maxHp)
+    }
+
+    @Test
+    fun floatingDamageNumbers_adaptColorByAttackPowerAndEmitSoundEffects() {
+        val engine = CombatEngine()
+        val glitcherman = FighterRoster.getFighter("glitcherman")
+        val jardin = FighterRoster.getFighter("jardin")
+        val stage = FighterRoster.stages.first()
+
+        var world = engine.createInitialState(
+            mode = GameMode.TRAINING,
+            stage = stage,
+            p1Def = glitcherman,
+            p2Def = jardin
+        ).let {
+            it.copy(p1 = it.p1.copy(x = 0.42f), p2 = it.p2.copy(x = 0.56f))
+        }
+
+        // Light classic attack emits SWING_WHOOSH then CLASSIC_HIT and light popup
+        world = engine.step(world, 20L, PlayerInput(classicPressed = true))
+        assertTrue(world.soundEvents.contains(com.example.game.audio.SoundEffect.SWING_WHOOSH))
+        repeat(8) {
+            world = engine.step(world, 20L, PlayerInput())
+        }
+        val lightPopup = world.popups.lastOrNull()
+        assertTrue("Light hit popup should spawn above defender", lightPopup != null && lightPopup.text.startsWith("-"))
+
+        // Verify power-tier color differentiation via classifyDamageVisual
+        val blockedStyle = CombatEngine.classifyDamageVisual(damage = 18, blocked = true)
+        val lightStyle = CombatEngine.classifyDamageVisual(damage = 55)
+        val mediumStyle = CombatEngine.classifyDamageVisual(damage = 95)
+        val heavyStyle = CombatEngine.classifyDamageVisual(damage = 148)
+        val ultiStyle = CombatEngine.classifyDamageVisual(damage = 285, isUlti = true)
+
+        assertTrue("Different power tiers should have distinct colors", setOf(
+            blockedStyle.color, lightStyle.color, mediumStyle.color, heavyStyle.color, ultiStyle.color
+        ).size == 5)
+        assertTrue("Scale should increase with power", lightStyle.scale < mediumStyle.scale && mediumStyle.scale < heavyStyle.scale && heavyStyle.scale < ultiStyle.scale)
     }
 }

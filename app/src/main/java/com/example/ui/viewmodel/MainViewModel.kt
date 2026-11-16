@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GameRepository
 import com.example.data.firebase.MatchRoom
 import com.example.data.firebase.PlayerProfile
+import com.example.data.firebase.PlaytestFeedback
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,6 +66,26 @@ class MainViewModel(
     private val _lobbyBusy = MutableStateFlow(false)
     val lobbyBusy: StateFlow<Boolean> = _lobbyBusy.asStateFlow()
 
+    val feedbacksState: StateFlow<UiState<List<PlaytestFeedback>>> = repository.observeFeedbacks()
+        .map<List<PlaytestFeedback>, UiState<List<PlaytestFeedback>>> { UiState.Success(it) }
+        .catch { error ->
+            val fsErr = unwrapFirestoreError(error)
+            if (fsErr == null && error is CancellationException) throw error
+            Log.w(TAG, "Feedback observe error", fsErr ?: error)
+            emit(UiState.Error((fsErr ?: error).message ?: "Erreur chargement retours"))
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000L),
+            initialValue = UiState.Loading
+        )
+
+    private val _feedbackBusy = MutableStateFlow(false)
+    val feedbackBusy: StateFlow<Boolean> = _feedbackBusy.asStateFlow()
+
+    private val _feedbackStatus = MutableStateFlow<String?>(null)
+    val feedbackStatus: StateFlow<String?> = _feedbackStatus.asStateFlow()
+
     init {
         viewModelScope.launch {
             repository.ensureProfile(userDisplayName)
@@ -116,6 +137,46 @@ class MainViewModel(
                 _lobbyMessage.value = err.message ?: "Impossible de rejoindre ce salon."
             }
         }
+    }
+
+    fun submitPlaytestFeedback(
+        authorName: String,
+        modeTested: String,
+        category: String,
+        fighterId: String,
+        rating: Int,
+        comment: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            _feedbackBusy.value = true
+            _feedbackStatus.value = null
+            val res = repository.submitFeedback(
+                authorName = authorName,
+                modeTested = modeTested,
+                category = category,
+                fighterId = fighterId,
+                rating = rating,
+                comment = comment
+            )
+            _feedbackBusy.value = false
+            res.onSuccess {
+                _feedbackStatus.value = "Merci ! Retour envoyé et sauvegardé."
+                onSuccess()
+            }.onFailure { err ->
+                _feedbackStatus.value = err.message ?: "Erreur lors de l'envoi du retour."
+            }
+        }
+    }
+
+    fun deletePlaytestFeedback(feedbackId: String) {
+        viewModelScope.launch {
+            repository.deleteFeedback(feedbackId)
+        }
+    }
+
+    fun clearFeedbackStatus() {
+        _feedbackStatus.value = null
     }
 
     private fun unwrapFirestoreError(error: Throwable): FirebaseFirestoreException? =

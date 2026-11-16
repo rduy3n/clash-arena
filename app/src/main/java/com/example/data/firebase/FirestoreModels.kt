@@ -55,3 +55,16 @@ data class MatchRoom(
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
+
+@IgnoreExtraProperties
+data class PlaytestFeedback(
+    @DocumentId val id: String = "",
+    val authorId: String = "",
+    val authorName: String = "",
+    val modeTested: String = "IRL",
+    val category: String = "Équilibrage",
+    val fighterId: String = "all",
+    val rating: Long = 5L,
+    val comment: String = "",
+    @ServerTimestamp val createdAt: Timestamp? = null
+)

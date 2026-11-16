@@ -5,6 +5,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -21,6 +23,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.data.firebase.GameRepository
+import com.example.game.audio.AndroidSoundEffectsManager
+import com.example.game.audio.LocalSoundPlayer
+import com.example.game.audio.SoundPlayer
 import com.example.game.data.BotDifficulty
 import com.example.game.data.GameMode
 import com.example.game.data.TrainingOpponentMode
@@ -31,6 +36,7 @@ import com.example.ui.screens.BattleScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MatchSetupScreen
 import com.example.ui.screens.OnlineLobbyScreen
+import com.example.ui.screens.PlaytestShareScreen
 import com.example.ui.screens.RosterScreen
 import com.example.ui.theme.ClashArenaTheme
 import com.example.ui.viewmodel.BattleViewModel
@@ -58,24 +64,34 @@ object Routes {
     const val SETUP_BOT = "setup_bot"
     const val SETUP_TRAINING = "setup_training"
     const val ONLINE_LOBBY = "online_lobby"
+    const val PLAYTEST_SHARE = "playtest_share"
     const val BATTLE_LOCAL = "battle_local/{mode}/{p1}/{p2}/{stage}/{diff}/{oppMode}"
     const val BATTLE_ONLINE = "battle_online/{roomCode}"
 }
 
 @Composable
 fun AppNavigation() {
+    val context = LocalContext.current
+    val soundManager = remember(context) { AndroidSoundEffectsManager(context) }
+    DisposableEffect(soundManager) {
+        onDispose { soundManager.release() }
+    }
+
     val auth = Firebase.auth
     val currentUser by auth.authStateFlow().collectAsStateWithLifecycle(initialValue = auth.currentUser)
 
-    val user = currentUser
-    if (user == null) {
-        AuthScreen(onAuthSuccess = {})
-    } else {
-        key(user.uid) {
-            AuthenticatedApp(
-                currentUserId = user.uid,
-                userDisplayName = user.displayName ?: user.email?.substringBefore("@") ?: "Combattant"
-            )
+    CompositionLocalProvider(LocalSoundPlayer provides soundManager) {
+        val user = currentUser
+        if (user == null) {
+            AuthScreen(onAuthSuccess = {})
+        } else {
+            key(user.uid) {
+                AuthenticatedApp(
+                    currentUserId = user.uid,
+                    userDisplayName = user.displayName ?: user.email?.substringBefore("@") ?: "Combattant",
+                    soundPlayer = soundManager
+                )
+            }
         }
     }
 }
@@ -83,7 +99,8 @@ fun AppNavigation() {
 @Composable
 private fun AuthenticatedApp(
     currentUserId: String,
-    userDisplayName: String
+    userDisplayName: String,
+    soundPlayer: SoundPlayer
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -108,7 +125,7 @@ private fun AuthenticatedApp(
                 val app = checkNotNull(this[APPLICATION_KEY])
                 val dbId = app.getString(R.string.firestore_database_id)
                 val db = FirebaseFirestore.getInstance(dbId)
-                BattleViewModel(GameRepository(db), currentUserId)
+                BattleViewModel(GameRepository(db), currentUserId, soundPlayer)
             }
         }
     )
@@ -128,6 +145,7 @@ private fun AuthenticatedApp(
                 onPlayTraining = { navController.navigate(Routes.SETUP_TRAINING) },
                 onPlayOnline = { navController.navigate(Routes.ONLINE_LOBBY) },
                 onOpenRoster = { navController.navigate(Routes.ROSTER) },
+                onOpenPlaytestShare = { navController.navigate(Routes.PLAYTEST_SHARE) },
                 onSignOut = { signOutUser(credentialManager, scope) }
             )
         }
@@ -172,6 +190,17 @@ private fun AuthenticatedApp(
                         launchSingleTop = true
                     }
                 },
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.PLAYTEST_SHARE) {
+            PlaytestShareScreen(
+                mainViewModel = mainViewModel,
+                currentUserId = currentUserId,
+                defaultTesterName = profile?.displayName ?: userDisplayName,
+                favoriteFighterId = favFighterId,
+                onGoToOnlineLobby = { navController.navigate(Routes.ONLINE_LOBBY) },
                 onBack = { navController.popBackStack() }
             )
         }

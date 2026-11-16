@@ -1,5 +1,6 @@
 package com.example.ui.auth
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,12 +17,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Button
@@ -80,101 +82,102 @@ fun AuthScreen(
         )
     }
 
-    Box(
+    Row(
         modifier = Modifier
             .fillMaxSize()
             .background(ObsidianBg)
-            .systemBarsPadding(),
-        contentAlignment = Alignment.Center
+            .systemBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
+        // Left: Hero Artwork Banner
+        Box(
+            modifier = Modifier
+                .weight(1.05f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.5.dp, ObsidianOutline, RoundedCornerShape(22.dp))
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.img_signin_banner),
+                contentDescription = "Bannière Clash Arena",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Transparent, ObsidianBg.copy(alpha = 0.92f))
+                        )
+                    )
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(18.dp)
+            ) {
+                Text(
+                    text = "CLASH ARENA",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = Color.White
+                )
+                Text(
+                    text = "DUELS 1V1 • SOLO & MULTIJOUEUR",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ElectricCyan
+                )
+            }
+        }
+
+        // Right: Highlights + Google Sign-In CTA
         Column(
             modifier = Modifier
-                .widthIn(max = 520.dp)
-                .fillMaxSize()
-                .padding(20.dp),
+                .weight(1f)
+                .fillMaxHeight()
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Hero artwork banner
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .border(1.5.dp, ObsidianOutline, RoundedCornerShape(22.dp))
-            ) {
-                Image(
-                    painter = painterResource(id = R.drawable.img_signin_banner),
-                    contentDescription = "Bannière Clash Arena",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, ObsidianBg.copy(alpha = 0.92f))
-                            )
-                        )
-                )
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(18.dp)
-                ) {
-                    Text(
-                        text = "CLASH ARENA",
-                        style = MaterialTheme.typography.displayLarge,
-                        color = Color.White
-                    )
-                    Text(
-                        text = "COMBAT ARCADE 2D • BOTS • ENTRAÎNEMENT • EN LIGNE",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ElectricCyan
-                    )
-                }
-            }
-
-            // Feature highlights
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = ObsidianSurface,
                 shape = RoundedCornerShape(18.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, ObsidianOutline)
+                border = BorderStroke(1.dp, ObsidianOutline)
             ) {
                 Column(
-                    modifier = Modifier.padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     FeatureRow(
                         icon = Icons.Default.Bolt,
                         tint = FlameOrange,
-                        title = "4 Combattants Équilibrés",
-                        subtitle = "Coup Classique, Capacité de Base & Ultime dévastateur"
+                        title = "4 Combattants Uniques",
+                        subtitle = "Capacités spéciales et attaques ultimes"
                     )
                     FeatureRow(
                         icon = Icons.Default.SmartToy,
                         tint = ElectricCyan,
-                        title = "Arcade vs Bots & Entraînement",
-                        subtitle = "IA réglable, combos guidés, liste des coups & reset PV"
+                        title = "Solo & Entraînement",
+                        subtitle = "IA réglable sur 3 niveaux ou pratique libre"
                     )
                     FeatureRow(
                         icon = Icons.Default.Groups,
                         tint = UltiGold,
-                        title = "Multijoueur en Ligne",
-                        subtitle = "Affrontez vos amis avec un code de salon en temps réel"
+                        title = "Duels entre amis",
+                        subtitle = "Salons privés par code et partage de session"
                     )
                 }
             }
 
-            // Google Sign-In CTA
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (errorMessage != null) {
                     Text(
@@ -209,7 +212,7 @@ fun AuthScreen(
                     enabled = !isLoading,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .height(54.dp)
                         .testTag("google_sign_in_button"),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -238,8 +241,8 @@ fun AuthScreen(
                 }
 
                 Text(
-                    text = "Requis pour sauvegarder votre profil et jouer en ligne avec vos amis.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "Requis pour sauvegarder votre profil, jouer en ligne et envoyer des retours.",
+                    style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary,
                     textAlign = TextAlign.Center
                 )
@@ -261,7 +264,7 @@ private fun FeatureRow(
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(tint.copy(alpha = 0.16f)),
             contentAlignment = Alignment.Center
@@ -270,7 +273,7 @@ private fun FeatureRow(
                 imageVector = icon,
                 contentDescription = null,
                 tint = tint,
-                modifier = Modifier.size(22.dp)
+                modifier = Modifier.size(20.dp)
             )
         }
         Column {

@@ -76,6 +76,17 @@ service cloud.firestore {
              data.updatedAt is timestamp && data.updatedAt <= request.time;
     }
 
+    function isValidFeedback(data) {
+      return data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 40 &&
+             data.modeTested in ['IRL', 'En ligne', 'Vs Bot', 'Entraînement'] &&
+             data.category in ['Équilibrage', 'Graphismes', 'Contrôles', 'Bug', 'Idée'] &&
+             data.fighterId is string && data.fighterId.size() >= 1 && data.fighterId.size() <= 40 &&
+             data.rating is int && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() >= 3 && data.comment.size() <= 400 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
     match /users/{userId} {
       allow get, list: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
 
@@ -195,6 +206,25 @@ service cloud.firestore {
                        );
 
       allow delete: if isSignedIn() && isValidRoomCode(roomId) && request.auth.uid == existing().hostId;
+    }
+
+    match /playtest_feedbacks/{feedbackId} {
+      allow get, list: if isSignedIn();
+
+      allow create: if isSignedIn() &&
+                       isValidId(feedbackId) &&
+                       incoming().authorId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'authorId', 'authorName', 'modeTested', 'category', 'fighterId', 'rating', 'comment', 'createdAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'authorId', 'authorName', 'modeTested', 'category', 'fighterId', 'rating', 'comment', 'createdAt'
+                       ]) &&
+                       isValidFeedback(incoming());
+
+      allow update: if false;
+
+      allow delete: if isSignedIn() && isValidId(feedbackId) && existing().authorId == request.auth.uid;
     }
   }
 }

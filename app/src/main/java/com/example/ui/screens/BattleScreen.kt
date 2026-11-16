@@ -18,25 +18,24 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -51,10 +50,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.game.audio.LocalSoundPlayer
+import com.example.game.audio.SoundEffect
 import com.example.game.data.BotDifficulty
 import com.example.game.data.FighterDefinition
 import com.example.game.data.FighterRoster
@@ -68,6 +73,8 @@ import com.example.ui.components.ArcadeControls
 import com.example.ui.components.ArenaCanvas
 import com.example.ui.components.FighterAvatar
 import com.example.ui.components.MoveListSheet
+import com.example.ui.components.UltiCinematicOverlay
+import com.example.ui.components.VictoryCinematicOverlay
 import com.example.ui.theme.CrimsonHp
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldHp
@@ -94,6 +101,9 @@ fun BattleScreen(
     var showMoveListFor by remember { mutableStateOf<FighterDefinition?>(null) }
     var showTrainingSettings by remember { mutableStateOf(false) }
 
+    val soundPlayer = LocalSoundPlayer.current
+    val isMuted by soundPlayer.isMuted.collectAsStateWithLifecycle()
+
     val world = worldState
     if (world == null) {
         Box(
@@ -115,108 +125,89 @@ fun BattleScreen(
             .background(ObsidianBg)
             .systemBarsPadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Top Arcade HUD (HP bars, Timer, Ulti gauges, Exit)
+        // 1. Fullscreen 2D Landscape Fighting Canvas
+        ArenaCanvas(
+            world = world,
+            timeMs = timeMs,
+            modifier = Modifier.fillMaxSize()
+        )
+
+        // 2. Top Translucent Arcade HUD + Compact Training Toolbar
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .align(Alignment.TopCenter)
+        ) {
             CombatHudHeader(
                 world = world,
                 localSide = localSide,
-                onExit = onExitBattle
+                isMuted = isMuted,
+                onToggleMute = { soundPlayer.toggleMute() },
+                onExit = {
+                    soundPlayer.play(SoundEffect.UI_CLICK)
+                    onExitBattle()
+                }
             )
 
-            // Training Mode Quick Bar (Reset HP, Move List, Opponent Switch, Settings)
             if (world.mode == GameMode.TRAINING) {
                 TrainingQuickToolbar(
                     training = world.training,
                     p1Name = world.p1.def.name,
                     p2Name = world.p2.def.name,
-                    onResetHealth = { viewModel.resetTrainingHealth() },
-                    onOpenMoveList = { showMoveListFor = world.p1.def },
-                    onOpenSettings = { showTrainingSettings = true },
-                    onSelectChallenge = { idx -> viewModel.selectTrainingChallenge(idx) },
-                    challengesCount = world.p1.def.comboChallenges.size
+                    onResetHealth = {
+                        soundPlayer.play(SoundEffect.UI_CLICK)
+                        viewModel.resetTrainingHealth()
+                    },
+                    onOpenMoveList = {
+                        soundPlayer.play(SoundEffect.UI_CLICK)
+                        showMoveListFor = world.p1.def
+                    },
+                    onOpenSettings = {
+                        soundPlayer.play(SoundEffect.UI_CLICK)
+                        showTrainingSettings = true
+                    }
                 )
             }
+        }
 
-            // 2D Fighting Stage Canvas
-            Box(
+        // 3. Center Slanted Guilty Gear Round / KO Banner
+        if (world.bannerText.isNotEmpty() && world.phase != MatchPhase.MATCH_OVER && world.ultiCinematic == null) {
+            val bannerShape = remember { skewedParallelogramShape(skewFraction = 0.08f, leanRight = true) }
+            Surface(
+                color = Color(0xEE080B14),
+                shape = bannerShape,
+                border = BorderStroke(2.5.dp, UltiGold),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
+                    .align(Alignment.Center)
+                    .graphicsLayer { rotationZ = -2.8f }
             ) {
-                ArenaCanvas(
-                    world = world,
-                    timeMs = timeMs,
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                // Combo counter badge
-                val activeCombo = if (localSide == 1) world.p1 else world.p2
-                if (activeCombo.comboCount >= 2) {
-                    Surface(
-                        color = FlameOrange.copy(alpha = 0.90f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(12.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-                            Text(
-                                text = "${activeCombo.comboCount} HITS !",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = Color.White
+                Box(
+                    modifier = Modifier
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color(0xFF1A0910),
+                                    Color(0xFF0A0F1E),
+                                    Color(0xFF1A0910)
+                                )
                             )
-                            Text(
-                                text = "${activeCombo.comboDamage} DÉGÂTS",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = UltiGold
-                            )
-                        }
-                    }
-                }
-
-                // Training Combo Challenge Completed Toast
-                if (world.mode == GameMode.TRAINING && world.training.challengeSuccessBannerMs > 0L) {
-                    Surface(
-                        color = EmeraldHp,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = ObsidianBg)
-                            Text(
-                                text = "COMBO RÉUSSI !",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = ObsidianBg
-                            )
-                        }
-                    }
-                }
-
-                // Center Round / KO Banner
-                if (world.bannerText.isNotEmpty() && world.phase != MatchPhase.MATCH_OVER) {
-                    Surface(
-                        color = ObsidianBg.copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(2.dp, UltiGold),
-                        modifier = Modifier.align(Alignment.Center)
-                    ) {
-                        Text(
-                            text = world.bannerText,
-                            style = MaterialTheme.typography.displayLarge,
-                            color = UltiGold,
-                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
                         )
-                    }
+                        .padding(horizontal = 36.dp, vertical = 14.dp)
+                ) {
+                    Text(
+                        text = world.bannerText,
+                        style = MaterialTheme.typography.displayLarge.copy(
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Black
+                        ),
+                        color = UltiGold
+                    )
                 }
             }
+        }
 
-            // Arcade Touch Controls
+        // 6. Translucent Corner Arcade Touch Controls (hidden during Ulti / Match Over cinematics)
+        if (world.ultiCinematic == null && world.phase != MatchPhase.MATCH_OVER) {
             ArcadeControls(
                 fighter = controlledFighter.def,
                 runtime = controlledFighter,
@@ -226,11 +217,32 @@ fun BattleScreen(
                 onBlockChanged = { viewModel.setBlock(it) },
                 onClassicPressed = { viewModel.triggerClassic() },
                 onBaseAbilityPressed = { viewModel.triggerBaseAbility() },
-                onUltiPressed = { viewModel.triggerUlti() }
+                onUltiPressed = { viewModel.triggerUlti() },
+                modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
 
-        // Online Disconnect Error Overlay
+        // 7. 2-Second Slow-Motion Ulti Anime Cut-In Cinematic!
+        world.ultiCinematic?.let { cine ->
+            UltiCinematicOverlay(
+                cinematic = cine,
+                timeMs = timeMs,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 8. Custom Animated Victory Cinematic per Character!
+        if (world.phase == MatchPhase.MATCH_OVER) {
+            VictoryCinematicOverlay(
+                world = world,
+                localSide = localSide,
+                onRematchLocal = onRematchLocal,
+                onExitBattle = onExitBattle,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 9. Online Disconnect Error Overlay
         if (onlineError != null) {
             Box(
                 modifier = Modifier
@@ -258,60 +270,6 @@ fun BattleScreen(
                 }
             }
         }
-
-        // Match Over Overlay
-        if (world.phase == MatchPhase.MATCH_OVER) {
-            val didWin = world.winnerSide == localSide
-            val winnerName = if (world.winnerSide == 1) world.p1.def.name else world.p2.def.name
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(ObsidianBg.copy(alpha = 0.82f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Surface(
-                    color = ObsidianSurface,
-                    shape = RoundedCornerShape(22.dp),
-                    border = BorderStroke(2.dp, if (didWin) UltiGold else CrimsonHp),
-                    modifier = Modifier.padding(24.dp)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            text = if (didWin) "VICTOIRE !" else "DÉFAITE",
-                            style = MaterialTheme.typography.displayLarge,
-                            color = if (didWin) UltiGold else CrimsonHp
-                        )
-                        Text(
-                            text = "$winnerName remporte le duel (${world.p1RoundsWon} - ${world.p2RoundsWon})",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            if (world.mode == GameMode.VS_BOT) {
-                                Button(
-                                    onClick = onRematchLocal,
-                                    colors = ButtonDefaults.buttonColors(containerColor = FlameOrange),
-                                    modifier = Modifier.testTag("rematch_button")
-                                ) {
-                                    Text("REVANCHE")
-                                }
-                            }
-                            OutlinedButton(
-                                onClick = onExitBattle,
-                                modifier = Modifier.testTag("exit_match_button")
-                            ) {
-                                Text("MENU", color = Color.White)
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     showMoveListFor?.let { fighter ->
@@ -334,26 +292,54 @@ fun BattleScreen(
     }
 }
 
+private fun skewedParallelogramShape(skewFraction: Float = 0.05f, leanRight: Boolean = true): Shape =
+    GenericShape { size, _ ->
+        val skew = (size.width * skewFraction).coerceAtMost(size.height * 0.9f)
+        if (leanRight) {
+            moveTo(skew, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width - skew, size.height)
+            lineTo(0f, size.height)
+        } else {
+            moveTo(0f, 0f)
+            lineTo(size.width - skew, 0f)
+            lineTo(size.width, size.height)
+            lineTo(skew, size.height)
+        }
+        close()
+    }
+
 @Composable
 private fun CombatHudHeader(
     world: ArenaWorldState,
     localSide: Int,
+    isMuted: Boolean,
+    onToggleMute: () -> Unit,
     onExit: () -> Unit
 ) {
-    Surface(
-        color = ObsidianSurface,
-        border = BorderStroke(1.dp, ObsidianOutline),
-        modifier = Modifier.fillMaxWidth()
+    val timerShape = remember { skewedParallelogramShape(skewFraction = 0.11f, leanRight = true) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    listOf(
+                        Color(0xD805070F),
+                        Color(0x8805070F),
+                        Color.Transparent
+                    )
+                )
+            )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 10.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // P1 Portrait + Bar
-            FighterAvatar(fighter = world.p1.def, size = 44.dp)
+            FighterAvatar(fighter = world.p1.def, size = 42.dp)
             FighterHealthAndUlti(
                 fighter = world.p1,
                 roundsWon = world.p1RoundsWon,
@@ -362,33 +348,41 @@ private fun CombatHudHeader(
                 modifier = Modifier.weight(1f)
             )
 
-            // Center Clock Crest + Exit
             Surface(
-                color = ObsidianBg,
-                shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.2.dp, UltiGold.copy(alpha = 0.7f))
+                color = Color(0xF0080B14),
+                shape = timerShape,
+                border = BorderStroke(1.8.dp, UltiGold.copy(alpha = 0.85f))
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    if (world.mode == GameMode.TRAINING) {
-                        Text(
-                            text = "LABO",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = EmeraldHp
-                        )
-                    } else {
-                        Text(
-                            text = "${world.roundTimeRemainingSec}",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = UltiGold
+                    Text(
+                        text = if (world.mode == GameMode.TRAINING) "∞" else "${world.roundTimeRemainingSec}",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Black
+                        ),
+                        color = if (world.mode == GameMode.TRAINING) EmeraldHp else UltiGold
+                    )
+                    IconButton(
+                        onClick = onToggleMute,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .testTag("battle_sound_toggle_button")
+                    ) {
+                        Icon(
+                            imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = if (isMuted) "Activer le son" else "Couper le son",
+                            tint = if (isMuted) CrimsonHp else ElectricCyan,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                     IconButton(
                         onClick = onExit,
                         modifier = Modifier
-                            .size(26.dp)
+                            .size(28.dp)
                             .testTag("battle_exit_button")
                     ) {
                         Icon(
@@ -401,7 +395,6 @@ private fun CombatHudHeader(
                 }
             }
 
-            // P2 Bar + Portrait
             FighterHealthAndUlti(
                 fighter = world.p2,
                 roundsWon = world.p2RoundsWon,
@@ -409,7 +402,7 @@ private fun CombatHudHeader(
                 alignRight = true,
                 modifier = Modifier.weight(1f)
             )
-            FighterAvatar(fighter = world.p2.def, size = 44.dp)
+            FighterAvatar(fighter = world.p2.def, size = 42.dp)
         }
     }
 }
@@ -429,48 +422,56 @@ private fun FighterHealthAndUlti(
         label = "hpTrail"
     )
     val hpBrush = when {
-        hpRatio > 0.5f -> Brush.horizontalGradient(listOf(EmeraldHp, Color(0xFF69F0AE)))
+        hpRatio > 0.5f -> Brush.horizontalGradient(listOf(EmeraldHp, Color(0xFF00E5FF)))
         hpRatio > 0.25f -> Brush.horizontalGradient(listOf(FlameOrange, UltiGold))
-        else -> Brush.horizontalGradient(listOf(CrimsonHp, Color(0xFFFF8A80)))
+        else -> Brush.horizontalGradient(listOf(CrimsonHp, Color(0xFFFF6E6E)))
     }
     val ultiRatio = (fighter.ultiMeter / 100f).coerceIn(0f, 1f)
+    val hpShape = remember(alignRight) { skewedParallelogramShape(skewFraction = 0.045f, leanRight = !alignRight) }
+    val ultiShape = remember(alignRight) { skewedParallelogramShape(skewFraction = 0.035f, leanRight = !alignRight) }
 
     Column(
         modifier = modifier,
         horizontalAlignment = if (alignRight) Alignment.End else Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(5.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             if (!alignRight) {
                 Text(
-                    text = fighter.def.name + if (isLocal) " (VOUS)" else "",
-                    style = MaterialTheme.typography.labelLarge,
+                    text = fighter.def.name.uppercase() + if (isLocal) " · VOUS" else "",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontStyle = FontStyle.Italic,
+                        fontWeight = FontWeight.Black
+                    ),
                     color = Color.White,
                     maxLines = 1
                 )
-                RoundPips(roundsWon)
+                RoundPips(roundsWon, fighter.def.primaryColor)
             } else {
-                RoundPips(roundsWon)
+                RoundPips(roundsWon, fighter.def.primaryColor)
                 Text(
-                    text = fighter.def.name + if (isLocal) " (VOUS)" else "",
-                    style = MaterialTheme.typography.labelLarge,
+                    text = fighter.def.name.uppercase() + if (isLocal) " · VOUS" else "",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontStyle = FontStyle.Italic,
+                        fontWeight = FontWeight.Black
+                    ),
                     color = Color.White,
                     maxLines = 1
                 )
             }
         }
 
-        // Arcade Health Bar with delayed trailing damage bar
+        // Slanted Guilty Gear Strive Parallelogram HP Bar + Crimson Damage Trail + Segment Notches
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(13.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(ObsidianBg)
-                .border(1.dp, ObsidianOutline, RoundedCornerShape(6.dp))
+                .height(14.dp)
+                .clip(hpShape)
+                .background(Color(0xEE060810))
+                .border(1.4.dp, Color.White.copy(alpha = 0.72f), hpShape)
         ) {
             val fillAlignment = if (alignRight) Alignment.CenterStart else Alignment.CenterEnd
             Box(
@@ -478,7 +479,7 @@ private fun FighterHealthAndUlti(
                     .fillMaxWidth(trailingRatio.coerceAtLeast(hpRatio))
                     .fillMaxHeight()
                     .align(fillAlignment)
-                    .background(Color(0xFFFF4D6D))
+                    .background(Color(0xFFFF2A5F))
             )
             Box(
                 modifier = Modifier
@@ -487,17 +488,30 @@ private fun FighterHealthAndUlti(
                     .align(fillAlignment)
                     .background(hpBrush)
             )
-            // Specular highlight strip
+            // Top metallic gleam
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(3.dp)
                     .align(Alignment.TopCenter)
-                    .background(Color.White.copy(alpha = 0.22f))
+                    .background(Color.White.copy(alpha = 0.30f))
             )
+            // Guilty Gear subtle 25% bar divider notches
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                repeat(3) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .size(width = 1.dp, height = 14.dp)
+                            .background(Color(0x6604060D))
+                    )
+                }
+            }
         }
 
-        // Mini Ulti Gauge + HP Readout
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -505,16 +519,17 @@ private fun FighterHealthAndUlti(
         ) {
             Text(
                 text = "${fighter.hp}",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = Color.White.copy(alpha = 0.85f)
             )
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 6.dp)
                     .height(5.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(ObsidianBg)
+                    .clip(ultiShape)
+                    .background(Color(0xCC060810))
+                    .border(0.8.dp, ObsidianOutline, ultiShape)
             ) {
                 Box(
                     modifier = Modifier
@@ -522,13 +537,20 @@ private fun FighterHealthAndUlti(
                         .fillMaxHeight()
                         .align(if (alignRight) Alignment.CenterStart else Alignment.CenterEnd)
                         .background(
-                            if (fighter.ultiMeter >= 100) UltiGold else ElectricCyan
+                            if (fighter.ultiMeter >= 100) {
+                                Brush.horizontalGradient(listOf(UltiGold, Color.White, UltiGold))
+                            } else {
+                                Brush.horizontalGradient(listOf(fighter.def.primaryColor, ElectricCyan))
+                            }
                         )
                 )
             }
             Text(
                 text = if (fighter.ultiMeter >= 100) "ULTI !" else "${fighter.ultiMeter}%",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontStyle = FontStyle.Italic,
+                    fontWeight = FontWeight.Black
+                ),
                 color = if (fighter.ultiMeter >= 100) UltiGold else ElectricCyan
             )
         }
@@ -536,14 +558,16 @@ private fun FighterHealthAndUlti(
 }
 
 @Composable
-private fun RoundPips(roundsWon: Int) {
-    Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+private fun RoundPips(roundsWon: Int, accentColor: Color) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         repeat(2) { idx ->
+            val won = idx < roundsWon
             Box(
                 modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (idx < roundsWon) UltiGold else ObsidianOutline)
+                    .size(9.dp)
+                    .graphicsLayer { rotationZ = 45f }
+                    .background(if (won) UltiGold else Color(0x661C2438))
+                    .border(1.dp, if (won) Color.White else accentColor.copy(alpha = 0.5f))
             )
         }
     }
@@ -556,150 +580,74 @@ private fun TrainingQuickToolbar(
     p2Name: String,
     onResetHealth: () -> Unit,
     onOpenMoveList: () -> Unit,
-    onOpenSettings: () -> Unit,
-    onSelectChallenge: (Int) -> Unit,
-    challengesCount: Int
+    onOpenSettings: () -> Unit
 ) {
     Surface(
-        color = ObsidianSurfaceVariant,
-        border = BorderStroke(1.dp, ObsidianOutline),
+        color = ObsidianSurfaceVariant.copy(alpha = 0.80f),
+        border = BorderStroke(1.dp, ObsidianOutline.copy(alpha = 0.65f)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Action buttons row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                onClick = onResetHealth,
+                color = EmeraldHp.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, EmeraldHp),
+                modifier = Modifier.testTag("training_reset_hp_button")
             ) {
-                Surface(
-                    onClick = onResetHealth,
-                    color = EmeraldHp.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, EmeraldHp),
-                    modifier = Modifier.testTag("training_reset_hp_button")
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = EmeraldHp, modifier = Modifier.size(16.dp))
-                        Text("RESET PV", style = MaterialTheme.typography.labelSmall, color = EmeraldHp)
-                    }
-                }
-
-                Surface(
-                    onClick = onOpenMoveList,
-                    color = ElectricCyan.copy(alpha = 0.16f),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, ElectricCyan),
-                    modifier = Modifier.testTag("training_movelist_button")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
-                        Text("COUPS ($p1Name)", style = MaterialTheme.typography.labelSmall, color = ElectricCyan)
-                    }
-                }
-
-                Surface(
-                    onClick = onOpenSettings,
-                    color = FlameOrange.copy(alpha = 0.16f),
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, FlameOrange),
-                    modifier = Modifier.testTag("training_settings_button")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = null, tint = FlameOrange, modifier = Modifier.size(16.dp))
-                        val oppSummary = if (training.opponentMode == TrainingOpponentMode.AI_BOT) {
-                            "${p2Name}: IA ${training.botDifficulty.label}"
-                        } else {
-                            "${p2Name}: ${training.opponentMode.label}"
-                        }
-                        Text(oppSummary, style = MaterialTheme.typography.labelSmall, color = FlameOrange)
-                    }
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = EmeraldHp, modifier = Modifier.size(14.dp))
+                    Text("RESET PV", style = MaterialTheme.typography.labelSmall, color = EmeraldHp)
                 }
             }
 
-            // Guided Combo Practice Bar
-            training.activeChallenge?.let { challenge ->
+            Surface(
+                onClick = onOpenMoveList,
+                color = ElectricCyan.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, ElectricCyan),
+                modifier = Modifier.testTag("training_movelist_button")
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "COMBO :",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = UltiGold
-                        )
-                        challenge.steps.forEachIndexed { idx, step ->
-                            val completed = idx < training.currentStepIndex
-                            val isNext = idx == training.currentStepIndex
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        when {
-                                            completed -> EmeraldHp
-                                            isNext -> UltiGold.copy(alpha = 0.25f)
-                                            else -> ObsidianBg
-                                        }
-                                    )
-                                    .padding(horizontal = 7.dp, vertical = 3.dp)
-                            ) {
-                                Text(
-                                    text = step.badge,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (completed) ObsidianBg else Color.White
-                                )
-                            }
-                        }
-                        Text(
-                            text = challenge.title,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = TextSecondary,
-                            maxLines = 1
-                        )
-                    }
+                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(14.dp))
+                    Text("COUPS ($p1Name)", style = MaterialTheme.typography.labelSmall, color = ElectricCyan)
+                }
+            }
 
-                    if (challengesCount > 1) {
-                        Surface(
-                            onClick = {
-                                val next = (training.selectedChallengeIndex + 1) % challengesCount
-                                onSelectChallenge(next)
-                            },
-                            color = ObsidianBg,
-                            shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, ObsidianOutline),
-                            modifier = Modifier.testTag("training_next_combo_button")
-                        ) {
-                            Text(
-                                text = "SUIVANT (${training.selectedChallengeIndex + 1}/$challengesCount)",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
+            Surface(
+                onClick = onOpenSettings,
+                color = FlameOrange.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, FlameOrange),
+                modifier = Modifier.testTag("training_settings_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = FlameOrange, modifier = Modifier.size(14.dp))
+                    val oppSummary = if (training.opponentMode == TrainingOpponentMode.AI_BOT) {
+                        "$p2Name: IA ${training.botDifficulty.label}"
+                    } else {
+                        "$p2Name: ${training.opponentMode.label}"
                     }
+                    Text(oppSummary, style = MaterialTheme.typography.labelSmall, color = FlameOrange)
                 }
             }
         }

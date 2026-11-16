@@ -1,10 +1,12 @@
 package com.example.game.engine
 
 import androidx.compose.ui.graphics.Color
+import com.example.game.audio.SoundEffect
 import com.example.game.data.ArenaStage
 import com.example.game.data.BotDifficulty
 import com.example.game.data.ComboChallenge
 import com.example.game.data.FighterDefinition
+import com.example.game.data.FighterVisualStyle
 import com.example.game.data.GameMode
 import com.example.game.data.MoveEffectType
 import com.example.game.data.TrainingOpponentMode
@@ -113,8 +115,12 @@ data class FloatingPopup(
     val text: String,
     val color: Color,
     val isCritical: Boolean = false,
+    val vx: Float = 0f,
+    val vy: Float = 0.24f,
+    val scaleMultiplier: Float = 1.0f,
+    val subLabel: String? = null,
     val ageMs: Long = 0L,
-    val maxAgeMs: Long = 820L
+    val maxAgeMs: Long = 860L
 )
 
 data class TrainingHudState(
@@ -129,6 +135,17 @@ data class TrainingHudState(
     val completedChallengesCount: Int = 0,
     val lastComboHits: Int = 0,
     val lastComboDamage: Int = 0
+)
+
+data class UltiCinematicState(
+    val casterSide: Int,
+    val fighterId: String,
+    val moveName: String,
+    val remainingMs: Long,
+    val totalMs: Long = 2000L,
+    val visualStyle: FighterVisualStyle,
+    val primaryColor: Color,
+    val accentColor: Color
 )
 
 data class ArenaWorldState(
@@ -146,11 +163,17 @@ data class ArenaWorldState(
     val ultiFlashMs: Long = 0L,
     val ultiFlashColor: Color = Color.Yellow,
     val screenShakeMs: Long = 0L,
+    val impactFlashMs: Long = 0L,
+    val hitStopMs: Long = 0L,
+    val impactX: Float = 0.5f,
+    val impactCallout: String? = null,
+    val ultiCinematic: UltiCinematicState? = null,
     val p1: FighterRuntime,
     val p2: FighterRuntime,
     val projectiles: List<Projectile> = emptyList(),
     val sparks: List<HitSpark> = emptyList(),
     val slashEffects: List<SlashEffect> = emptyList(),
     val popups: List<FloatingPopup> = emptyList(),
+    val soundEvents: List<SoundEffect> = emptyList(),
     val training: TrainingHudState = TrainingHudState()
 )

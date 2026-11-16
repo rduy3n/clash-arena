@@ -8,6 +8,7 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.snapshots
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -457,6 +458,79 @@ class GameRepository(
         }
     }
 
+    suspend fun submitFeedback(
+        authorName: String,
+        modeTested: String,
+        category: String,
+        fighterId: String,
+        rating: Int,
+        comment: String
+    ): Result<Unit> {
+        val uid = try {
+            requireUserId()
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+        val cleanComment = comment.trim()
+        if (cleanComment.length < 3) {
+            return Result.failure(IllegalArgumentException("Écrivez au moins 3 caractères pour votre retour."))
+        }
+        val safeAuthor = authorName.trim().ifBlank { "Testeur" }.take(38)
+        val docRef = db.collection(COLLECTION_FEEDBACKS).document("fb_${System.currentTimeMillis()}_${Random.nextInt(1000, 9999)}")
+        val payload = mapOf(
+            "authorId" to uid,
+            "authorName" to safeAuthor,
+            "modeTested" to modeTested,
+            "category" to category,
+            "fighterId" to fighterId.ifBlank { "all" }.take(38),
+            "rating" to rating.coerceIn(1, 5).toLong(),
+            "comment" to cleanComment.take(395),
+            "createdAt" to FieldValue.serverTimestamp()
+        )
+        return try {
+            docRef.set(payload).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.CREATE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
+    fun observeFeedbacks(): Flow<List<PlaytestFeedback>> {
+        return db.collection(COLLECTION_FEEDBACKS)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(30)
+            .snapshots()
+            .map { snapshot ->
+                snapshot.toObjects(
+                    PlaytestFeedback::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )
+            }
+            .catch { error ->
+                if (error is CancellationException && error.cause == null) throw error
+                if (auth.currentUser != null) {
+                    handleFirestoreError(error, OperationType.LIST, COLLECTION_FEEDBACKS)
+                }
+                throw error
+            }
+    }
+
+    suspend fun deleteFeedback(feedbackId: String): Result<Unit> {
+        val docRef = db.collection(COLLECTION_FEEDBACKS).document(feedbackId)
+        return try {
+            docRef.delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
     private fun generateRoomCode(): String {
         val chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
         return buildString(6) {
@@ -469,6 +543,7 @@ class GameRepository(
     companion object {
         const val COLLECTION_USERS = "users"
         const val COLLECTION_ROOMS = "match_rooms"
+        const val COLLECTION_FEEDBACKS = "playtest_feedbacks"
         private val ROOM_CODE_REGEX = Regex("^[A-Z0-9]{6}$")
     }
 }

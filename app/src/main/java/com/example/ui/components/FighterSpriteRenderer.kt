@@ -15,12 +15,11 @@ import com.example.game.engine.CombatAction
 import com.example.game.engine.FighterRuntime
 import com.example.ui.theme.GuardBlue
 import kotlin.math.PI
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-private val InkOutline = Color(0xFF070910)
+private val InkOutline = Color(0xFF05070D)
 
 internal fun DrawScope.drawFighterReflection(
     f: FighterRuntime,
@@ -29,16 +28,20 @@ internal fun DrawScope.drawFighterReflection(
     groundY: Float
 ) {
     val cx = f.x * arenaW
-    val bodyW = arenaH * 0.11f * f.def.stats.widthScale
-    val alpha = (0.28f - f.y * 0.35f).coerceIn(0.05f, 0.28f)
+    val bodyW = arenaH * 0.14f * f.def.stats.widthScale
+    val alpha = (0.38f - f.y * 0.40f).coerceIn(0.06f, 0.38f)
     drawOval(
         brush = Brush.radialGradient(
-            colors = listOf(f.def.primaryColor.copy(alpha = alpha), Color.Transparent),
-            center = Offset(cx, groundY + arenaH * 0.025f),
-            radius = bodyW * 1.15f
+            colors = listOf(
+                f.def.primaryColor.copy(alpha = alpha),
+                f.def.accentColor.copy(alpha = alpha * 0.45f),
+                Color.Transparent
+            ),
+            center = Offset(cx, groundY + arenaH * 0.032f),
+            radius = bodyW * 1.45f
         ),
-        topLeft = Offset(cx - bodyW * 1.05f, groundY + 2f),
-        size = Size(bodyW * 2.1f, arenaH * 0.065f)
+        topLeft = Offset(cx - bodyW * 1.35f, groundY + 1f),
+        size = Size(bodyW * 2.7f, arenaH * 0.085f)
     )
 }
 
@@ -51,42 +54,39 @@ internal fun DrawScope.drawVineSnare(
 ) {
     val cx = f.x * arenaW
     val footY = groundY - f.y * (arenaH * 0.64f)
-    val bodyH = arenaH * 0.28f * f.def.stats.heightScale
-    val bodyW = arenaH * 0.12f * f.def.stats.widthScale
+    val bodyH = arenaH * 0.30f * f.def.stats.heightScale
+    val bodyW = arenaH * 0.135f * f.def.stats.widthScale
 
-    // Ground roots gripping ankles
     val rootPath = Path().apply {
-        moveTo(cx - bodyW * 0.8f, groundY + 2f)
-        quadraticTo(cx - bodyW * 0.45f, footY - bodyH * 0.15f, cx, footY - bodyH * 0.08f)
-        quadraticTo(cx + bodyW * 0.45f, footY - bodyH * 0.15f, cx + bodyW * 0.8f, groundY + 2f)
+        moveTo(cx - bodyW * 0.90f, groundY + 3f)
+        quadraticTo(cx - bodyW * 0.45f, footY - bodyH * 0.18f, cx, footY - bodyH * 0.08f)
+        quadraticTo(cx + bodyW * 0.45f, footY - bodyH * 0.18f, cx + bodyW * 0.90f, groundY + 3f)
     }
-    drawPath(rootPath, color = Color(0xFF0B3B1E), style = Stroke(width = 9f, cap = StrokeCap.Round))
-    drawPath(rootPath, color = Color(0xFF00E676), style = Stroke(width = 4.5f, cap = StrokeCap.Round))
+    drawPath(rootPath, color = Color(0xFF072613), style = Stroke(width = 11f, cap = StrokeCap.Round))
+    drawPath(rootPath, color = Color(0xFF00E676), style = Stroke(width = 5f, cap = StrokeCap.Round))
 
-    // Coiled glowing thorny vines around torso
     for (ring in 0..3) {
         val ry = footY - bodyH * (0.16f + ring * 0.19f)
-        val sway = sin(timeMs * 0.022f + ring * 1.4f) * 3.5f
-        val rectLeft = cx - bodyW * 0.72f + sway
-        val rectW = bodyW * 1.44f
-        val rectH = arenaH * 0.036f
+        val sway = sin(timeMs * 0.022f + ring * 1.4f) * 4f
+        val rectLeft = cx - bodyW * 0.78f + sway
+        val rectW = bodyW * 1.56f
+        val rectH = arenaH * 0.040f
         drawOval(
-            color = Color(0xFF0C3B1E),
+            color = Color(0xFF062511),
             topLeft = Offset(rectLeft, ry),
             size = Size(rectW, rectH),
-            style = Stroke(width = 8f)
+            style = Stroke(width = 9f)
         )
         drawOval(
             color = Color(0xFF00E676),
             topLeft = Offset(rectLeft, ry),
             size = Size(rectW, rectH),
-            style = Stroke(width = 4f)
+            style = Stroke(width = 4.2f)
         )
-        // Little thorns on vine ring
         drawCircle(
-            color = Color(0xFFFFC400),
-            radius = 3.5f,
-            center = Offset(rectLeft + rectW * (if (ring % 2 == 0) 0.15f else 0.85f), ry + rectH * 0.5f)
+            color = Color(0xFFFFD600),
+            radius = 4f,
+            center = Offset(rectLeft + rectW * (if (ring % 2 == 0) 0.14f else 0.86f), ry + rectH * 0.5f)
         )
     }
 }
@@ -96,27 +96,31 @@ internal fun DrawScope.drawDetailedFighter(
     arenaW: Float,
     arenaH: Float,
     groundY: Float,
-    timeMs: Long
+    timeMs: Long,
+    hitStopActive: Boolean = false
 ) {
-    val cx = f.x * arenaW
+    val hitJitter = if ((hitStopActive || f.action == CombatAction.HIT_STUN) && (timeMs / 25L) % 2L == 0L) {
+        f.facing * -3.5f
+    } else 0f
+    val cx = f.x * arenaW + hitJitter
     val jumpOffset = f.y * (arenaH * 0.64f)
     val footY = groundY - jumpOffset
 
     val hScale = f.def.stats.heightScale
     val wScale = f.def.stats.widthScale
-    val unit = arenaH * 0.29f * hScale
-    val shoulderHalfW = unit * 0.21f * wScale
-    val hipHalfW = unit * 0.14f * wScale
+    val unit = arenaH * 0.32f * hScale
+    val shoulderHalfW = unit * 0.225f * wScale
+    val waistHalfW = unit * 0.135f * wScale
+    val hipHalfW = unit * 0.155f * wScale
 
-    // Contact shadow on floor
+    // Angled directional ground shadow + tight contact AO
     val shadowScale = (1f - f.y * 1.35f).coerceIn(0.32f, 1f)
     drawOval(
-        color = Color.Black.copy(alpha = 0.60f * shadowScale),
-        topLeft = Offset(cx - shoulderHalfW * 1.55f * shadowScale, groundY - arenaH * 0.014f),
-        size = Size(shoulderHalfW * 3.1f * shadowScale, arenaH * 0.032f)
+        color = Color.Black.copy(alpha = 0.68f * shadowScale),
+        topLeft = Offset(cx - shoulderHalfW * 1.75f * shadowScale, groundY - arenaH * 0.014f),
+        size = Size(shoulderHalfW * 3.5f * shadowScale, arenaH * 0.034f)
     )
 
-    // KO floored pose with spinning stars
     if (f.action == CombatAction.KO) {
         drawKoPose(f, cx, groundY, unit, wScale, timeMs)
         return
@@ -124,191 +128,245 @@ internal fun DrawScope.drawDetailedFighter(
 
     val dir = f.facing.toFloat()
     val isHit = f.action == CombatAction.HIT_STUN
-    val flashWhite = isHit && (timeMs / 55L) % 2L == 0L
+    val flashWhite = isHit && (timeMs / 48L) % 2L == 0L
     val isSweeping = (f.action == CombatAction.BASE_ABILITY || f.action == CombatAction.ULTI) &&
         f.def.visualStyle == FighterVisualStyle.DARON_BRESILIEN
 
-    val idleBob = if (f.action == CombatAction.IDLE) sin(timeMs / 160.0).toFloat() * (unit * 0.025f) else 0f
+    // Normalized action progression [0..1]
+    val actionFrac = if (f.actionDurationMs > 0L) {
+        (1f - f.actionTimerMs.toFloat() / f.actionDurationMs.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    // 3-phase Guilty Gear strike curve:
+    // windup (< 0): -0.45 -> 0
+    // active snap (0..1): 0 -> 1.12
+    // recovery: 1.12 -> 0
+    val strikeCurve = when {
+        actionFrac < 0.16f -> -0.45f * sin((actionFrac / 0.16f) * (PI.toFloat() * 0.5f))
+        actionFrac < 0.42f -> {
+            val t = (actionFrac - 0.16f) / 0.26f
+            -0.45f + 1.55f * sin(t * (PI.toFloat() * 0.5f))
+        }
+        else -> {
+            val t = (actionFrac - 0.42f) / 0.58f
+            1.10f * (1f - t)
+        }
+    }
+
+    val idleBob = if (f.action == CombatAction.IDLE) sin(timeMs / 145.0).toFloat() * (unit * 0.024f) else 0f
+    val guardBreathe = if (f.action == CombatAction.BLOCK) sin(timeMs / 115.0).toFloat() * (unit * 0.012f) else 0f
     val crouchDrop = when {
-        isSweeping -> unit * 0.36f
-        f.action == CombatAction.BLOCK -> unit * 0.08f
-        f.chargingMegaPunch -> unit * 0.10f
+        isSweeping -> unit * 0.34f
+        f.action == CombatAction.BLOCK -> unit * 0.085f
+        f.chargingMegaPunch -> unit * 0.115f
+        f.action in setOf(CombatAction.CLASSIC, CombatAction.BASE_ABILITY, CombatAction.ULTI) ->
+            (strikeCurve.coerceAtLeast(0f) * unit * 0.045f)
         else -> 0f
     }
 
     val leanX = when {
-        isSweeping -> -dir * unit * 0.16f
-        f.action == CombatAction.CLASSIC || f.action == CombatAction.BASE_ABILITY -> dir * unit * 0.12f
-        f.action == CombatAction.ULTI && !f.chargingMegaPunch -> dir * unit * 0.16f
-        f.chargingMegaPunch -> -dir * unit * 0.12f
-        f.action == CombatAction.WALK -> dir * unit * 0.07f
-        isHit -> -dir * unit * 0.14f
-        else -> dir * unit * 0.03f
+        isSweeping -> -dir * unit * 0.18f
+        f.action == CombatAction.CLASSIC -> dir * unit * (0.04f + 0.12f * strikeCurve)
+        f.action == CombatAction.BASE_ABILITY -> dir * unit * (0.05f + 0.15f * strikeCurve)
+        f.action == CombatAction.ULTI && !f.chargingMegaPunch -> dir * unit * (0.06f + 0.17f * strikeCurve)
+        f.chargingMegaPunch -> -dir * unit * 0.15f
+        f.action == CombatAction.WALK -> dir * unit * 0.085f
+        isHit -> -dir * unit * 0.16f
+        else -> dir * unit * 0.035f
     }
 
-    val hipCenter = Offset(cx, footY - unit * 0.44f + idleBob + crouchDrop)
+    val hipCenter = Offset(cx, footY - unit * 0.43f + idleBob + guardBreathe + crouchDrop)
+    val waistCenter = Offset(cx + leanX * 0.45f, hipCenter.y - unit * 0.11f)
     val shoulderCenter = Offset(cx + leanX, hipCenter.y - unit * 0.31f)
-    val headCenter = Offset(shoulderCenter.x + dir * unit * 0.02f, shoulderCenter.y - unit * 0.16f)
+    val neckBase = Offset(shoulderCenter.x + dir * unit * 0.02f, shoulderCenter.y - unit * 0.03f)
+    val headCenter = Offset(shoulderCenter.x + dir * unit * 0.035f, shoulderCenter.y - unit * 0.165f)
 
-    // Palette by character
     val palette = fighterPalette(f.def.visualStyle, flashWhite)
 
-    // Ulti ready aura behind fighter
+    // Guilty Gear Aura Flame / Cyber Halo when Ulti Ready or Active
     if (f.ultiMeter >= 100 || f.action == CombatAction.ULTI || f.chargingMegaPunch) {
-        val pulse = 0.25f + 0.18f * sin(timeMs / 95.0).toFloat()
+        val pulse = 0.30f + 0.22f * sin(timeMs / 80.0).toFloat()
         drawOval(
             brush = Brush.radialGradient(
-                colors = listOf(f.def.primaryColor.copy(alpha = pulse), Color.Transparent),
+                colors = listOf(
+                    f.def.primaryColor.copy(alpha = pulse),
+                    f.def.accentColor.copy(alpha = pulse * 0.50f),
+                    Color.Transparent
+                ),
                 center = Offset(cx + leanX * 0.4f, hipCenter.y - unit * 0.10f),
-                radius = unit * 0.62f
+                radius = unit * 0.72f
             ),
-            topLeft = Offset(cx - unit * 0.48f, headCenter.y - unit * 0.18f),
-            size = Size(unit * 0.96f, unit * 1.10f)
+            topLeft = Offset(cx - unit * 0.56f, headCenter.y - unit * 0.22f),
+            size = Size(unit * 1.12f, unit * 1.24f)
         )
     }
 
-    // Flowing scarves / headbands / cloak tails BEHIND body
+    // Speed dash afterimages for Chen & Ulti strikes
+    if ((f.def.visualStyle == FighterVisualStyle.CHINOIS_BAGUETTES &&
+            (f.action == CombatAction.BASE_ABILITY || f.action == CombatAction.ULTI)) ||
+        (f.action == CombatAction.ULTI && !f.chargingMegaPunch)
+    ) {
+        for (ghost in 1..2) {
+            val gx = cx - dir * unit * (0.20f * ghost)
+            val ga = 0.28f - ghost * 0.10f
+            drawOval(
+                color = f.def.primaryColor.copy(alpha = ga),
+                topLeft = Offset(gx - shoulderHalfW * 0.85f, headCenter.y),
+                size = Size(shoulderHalfW * 1.7f, footY - headCenter.y)
+            )
+        }
+    }
+
+    // Flowing scarves / headbands / jacket tails BEHIND body
     drawBackAccessories(f, shoulderCenter, headCenter, unit, dir, timeMs, flashWhite)
 
-    // --- BACK LEG & FRONT LEG ---
-    val walkPhase = sin(timeMs / 75.0).toFloat()
-    val legThicknessTop = unit * 0.092f * (0.95f + 0.22f * (wScale - 1f))
-    val legThicknessBot = legThicknessTop * 0.72f
+    // --- BACK & FRONT LEGS (sculpted thigh + calf musculature) ---
+    val walkPhase = sin(timeMs / 70.0).toFloat()
+    val thighR = unit * 0.095f * (0.95f + 0.22f * (wScale - 1f))
+    val kneeR = thighR * 0.70f
+    val ankleR = thighR * 0.50f
 
     if (isSweeping) {
-        // Authentic Capoeira / Street Fighter Balayette sweep pose!
-        // Back/support leg bent tucked under hips
-        val supportKnee = Offset(hipCenter.x - dir * unit * 0.18f, footY - unit * 0.14f)
-        val supportAnkle = Offset(hipCenter.x - dir * unit * 0.26f, footY - unit * 0.03f)
-        drawTaperedLimb(hipCenter, supportKnee, legThicknessTop, legThicknessBot, palette.pantsLight, palette.pantsDark)
-        drawTaperedLimb(supportKnee, supportAnkle, legThicknessBot, legThicknessBot * 0.78f, palette.pantsLight, palette.pantsDark)
-        drawFighterBoot(supportAnkle, -dir, unit, palette.shoeColor)
+        val supportKnee = Offset(hipCenter.x - dir * unit * 0.19f, footY - unit * 0.14f)
+        val supportAnkle = Offset(hipCenter.x - dir * unit * 0.28f, footY - unit * 0.03f)
+        drawAnatomicalLimb(hipCenter, supportKnee, thighR, kneeR, palette.pantsLight, palette.pantsDark, dir, null, bulgeBias = 1.15f)
+        drawAnatomicalLimb(supportKnee, supportAnkle, kneeR, ankleR, palette.pantsLight, palette.pantsDark, dir, null, bulgeBias = 1.12f)
+        drawDetailedBoot(supportAnkle, -dir, unit, palette.shoeColor, palette.shoeTrim)
 
-        // Extended sweeping front leg skimming the arena floor!
-        val sweepExt = if (f.action == CombatAction.ULTI) unit * 0.78f else unit * 0.66f
-        val sweepKnee = Offset(hipCenter.x + dir * sweepExt * 0.52f, footY - unit * 0.08f)
+        val sweepReach = if (f.action == CombatAction.ULTI) 0.86f else 0.74f
+        val sweepExt = unit * (0.34f + (sweepReach - 0.34f) * strikeCurve.coerceIn(0.35f, 1.1f))
+        val sweepKnee = Offset(hipCenter.x + dir * sweepExt * 0.50f, footY - unit * 0.09f)
         val sweepAnkle = Offset(hipCenter.x + dir * sweepExt, footY - unit * 0.045f)
-        drawTaperedLimb(hipCenter, sweepKnee, legThicknessTop, legThicknessBot, palette.pantsLight, palette.pantsDark)
-        drawTaperedLimb(sweepKnee, sweepAnkle, legThicknessBot, legThicknessBot * 0.75f, palette.pantsLight, palette.pantsDark)
-        drawFighterBoot(sweepAnkle, dir, unit * 1.05f, f.def.primaryColor)
+        drawAnatomicalLimb(hipCenter, sweepKnee, thighR, kneeR, palette.pantsLight, palette.pantsDark, dir, f.def.primaryColor.copy(alpha = 0.45f), bulgeBias = 1.15f)
+        drawAnatomicalLimb(sweepKnee, sweepAnkle, kneeR, ankleR, palette.pantsLight, palette.pantsDark, dir, f.def.primaryColor.copy(alpha = 0.65f), bulgeBias = 1.14f)
+        drawDetailedBoot(sweepAnkle, dir, unit * 1.08f, f.def.primaryColor, Color.White)
     } else {
-        val backHip = Offset(hipCenter.x - dir * hipHalfW * 0.5f, hipCenter.y)
-        val frontHip = Offset(hipCenter.x + dir * hipHalfW * 0.5f, hipCenter.y)
+        val backHip = Offset(hipCenter.x - dir * hipHalfW * 0.52f, hipCenter.y)
+        val frontHip = Offset(hipCenter.x + dir * hipHalfW * 0.52f, hipCenter.y)
 
         val (backKnee, backAnkle, frontKnee, frontAnkle) = when (f.action) {
             CombatAction.WALK -> {
-                val stride = walkPhase * unit * 0.18f
-                val liftBack = (-walkPhase).coerceAtLeast(0f) * unit * 0.06f
-                val liftFront = walkPhase.coerceAtLeast(0f) * unit * 0.06f
+                val stride = walkPhase * unit * 0.20f
+                val liftBack = (-walkPhase).coerceAtLeast(0f) * unit * 0.07f
+                val liftFront = walkPhase.coerceAtLeast(0f) * unit * 0.07f
                 QuadOffsets(
-                    Offset(backHip.x - stride * 0.5f + dir * unit * 0.04f, footY - unit * 0.22f - liftBack),
+                    Offset(backHip.x - stride * 0.5f + dir * unit * 0.05f, footY - unit * 0.22f - liftBack),
                     Offset(backHip.x - stride - dir * unit * 0.05f, footY - unit * 0.03f - liftBack),
-                    Offset(frontHip.x + stride * 0.55f + dir * unit * 0.06f, footY - unit * 0.22f - liftFront),
+                    Offset(frontHip.x + stride * 0.55f + dir * unit * 0.07f, footY - unit * 0.22f - liftFront),
                     Offset(frontHip.x + stride + dir * unit * 0.06f, footY - unit * 0.03f - liftFront)
                 )
             }
             CombatAction.JUMP -> {
                 QuadOffsets(
-                    Offset(backHip.x - dir * unit * 0.08f, hipCenter.y + unit * 0.19f),
-                    Offset(backHip.x - dir * unit * 0.14f, hipCenter.y + unit * 0.36f),
-                    Offset(frontHip.x + dir * unit * 0.18f, hipCenter.y + unit * 0.11f),
-                    Offset(frontHip.x + dir * unit * 0.10f, hipCenter.y + unit * 0.28f)
+                    Offset(backHip.x - dir * unit * 0.09f, hipCenter.y + unit * 0.19f),
+                    Offset(backHip.x - dir * unit * 0.16f, hipCenter.y + unit * 0.35f),
+                    Offset(frontHip.x + dir * unit * 0.19f, hipCenter.y + unit * 0.10f),
+                    Offset(frontHip.x + dir * unit * 0.10f, hipCenter.y + unit * 0.27f)
                 )
             }
             else -> {
-                // Classic Street Fighter wide stance
-                val stanceSpread = unit * 0.17f
+                val stanceSpread = unit * 0.185f
+                val lunge = if (f.action in setOf(CombatAction.CLASSIC, CombatAction.BASE_ABILITY, CombatAction.ULTI)) {
+                    unit * 0.075f * strikeCurve.coerceAtLeast(0f)
+                } else 0f
                 QuadOffsets(
                     Offset(backHip.x - dir * stanceSpread * 0.55f, footY - unit * 0.21f),
                     Offset(backHip.x - dir * stanceSpread, footY - unit * 0.03f),
-                    Offset(frontHip.x + dir * stanceSpread * 0.85f, footY - unit * 0.21f),
-                    Offset(frontHip.x + dir * stanceSpread * 0.95f, footY - unit * 0.03f)
+                    Offset(frontHip.x + dir * (stanceSpread * 0.85f + lunge), footY - unit * 0.21f),
+                    Offset(frontHip.x + dir * (stanceSpread * 0.95f + lunge), footY - unit * 0.03f)
                 )
             }
         }
 
-        // Back leg (slightly darker for depth)
-        drawTaperedLimb(backHip, backKnee, legThicknessTop, legThicknessBot, palette.pantsDark, palette.pantsDark)
-        drawTaperedLimb(backKnee, backAnkle, legThicknessBot, legThicknessBot * 0.78f, palette.pantsDark, palette.pantsDark)
-        drawFighterBoot(backAnkle, dir, unit, palette.shoeColor)
+        // Back leg (deep shadow tone for 2.5D separation)
+        drawAnatomicalLimb(backHip, backKnee, thighR, kneeR, palette.pantsDark, palette.pantsDeepShadow, dir, null, bulgeBias = 1.14f)
+        drawAnatomicalLimb(backKnee, backAnkle, kneeR, ankleR, palette.pantsDark, palette.pantsDeepShadow, dir, null, bulgeBias = 1.12f)
+        drawDetailedBoot(backAnkle, dir, unit, palette.shoeColor, palette.shoeTrim)
 
-        // Front leg
-        drawTaperedLimb(frontHip, frontKnee, legThicknessTop, legThicknessBot, palette.pantsLight, palette.pantsDark)
-        drawTaperedLimb(frontKnee, frontAnkle, legThicknessBot, legThicknessBot * 0.78f, palette.pantsLight, palette.pantsDark)
-        drawFighterBoot(frontAnkle, dir, unit, palette.shoeColor)
+        // Front leg with rim highlight
+        drawAnatomicalLimb(frontHip, frontKnee, thighR, kneeR, palette.pantsLight, palette.pantsDark, dir, f.def.primaryColor.copy(alpha = 0.32f), bulgeBias = 1.15f)
+        drawAnatomicalLimb(frontKnee, frontAnkle, kneeR, ankleR, palette.pantsLight, palette.pantsDark, dir, f.def.primaryColor.copy(alpha = 0.35f), bulgeBias = 1.14f)
+        drawDetailedBoot(frontAnkle, dir, unit, palette.shoeColor, palette.shoeTrim)
     }
 
-    // --- BACK ARM (retracted guard or support hand during sweep) ---
-    val armThickness = unit * 0.072f * (0.95f + 0.20f * (wScale - 1f))
-    val backShoulder = Offset(shoulderCenter.x - dir * shoulderHalfW * 0.72f, shoulderCenter.y + unit * 0.02f)
-    val frontShoulder = Offset(shoulderCenter.x + dir * shoulderHalfW * 0.72f, shoulderCenter.y + unit * 0.02f)
+    // --- BACK ARM ---
+    val bicepR = unit * 0.074f * (0.95f + 0.20f * (wScale - 1f))
+    val forearmR = bicepR * 0.82f
+    val wristR = bicepR * 0.64f
+    val backShoulder = Offset(shoulderCenter.x - dir * shoulderHalfW * 0.72f, shoulderCenter.y + unit * 0.025f)
+    val frontShoulder = Offset(shoulderCenter.x + dir * shoulderHalfW * 0.72f, shoulderCenter.y + unit * 0.025f)
 
     if (isSweeping) {
-        // Support arm planted on arena floor
-        val plantHand = Offset(cx - dir * unit * 0.28f, footY - unit * 0.04f)
-        val supportElbow = Offset((backShoulder.x + plantHand.x) * 0.5f - dir * unit * 0.04f, (backShoulder.y + plantHand.y) * 0.5f)
-        drawTaperedLimb(backShoulder, supportElbow, armThickness, armThickness * 0.85f, palette.sleeveDark, palette.sleeveDark)
-        drawTaperedLimb(supportElbow, plantHand, armThickness * 0.85f, armThickness * 0.74f, palette.skinShade, palette.skinShade)
+        val plantHand = Offset(cx - dir * unit * 0.29f, footY - unit * 0.04f)
+        val supportElbow = Offset((backShoulder.x + plantHand.x) * 0.5f - dir * unit * 0.05f, (backShoulder.y + plantHand.y) * 0.5f)
+        drawAnatomicalLimb(backShoulder, supportElbow, bicepR, forearmR, palette.sleeveDark, palette.pantsDeepShadow, dir, null, bulgeBias = 1.12f)
+        drawAnatomicalLimb(supportElbow, plantHand, forearmR, wristR, palette.armDark, palette.skinShade, dir, null, bulgeBias = 1.08f)
     } else {
-        val backElbow = Offset(backShoulder.x - dir * unit * 0.06f, backShoulder.y + unit * 0.14f)
+        val backElbow = Offset(backShoulder.x - dir * unit * 0.07f, backShoulder.y + unit * 0.14f)
         val backHand = when (f.action) {
             CombatAction.BLOCK -> Offset(frontShoulder.x + dir * unit * 0.12f, headCenter.y + unit * 0.02f)
-            else -> Offset(backShoulder.x + dir * unit * 0.12f, shoulderCenter.y + unit * 0.06f)
+            else -> Offset(backShoulder.x + dir * unit * 0.13f, shoulderCenter.y + unit * 0.06f + idleBob * 0.6f)
         }
-        drawTaperedLimb(backShoulder, backElbow, armThickness, armThickness * 0.86f, palette.sleeveDark, palette.sleeveDark)
-        drawTaperedLimb(backElbow, backHand, armThickness * 0.86f, armThickness * 0.74f, palette.armDark, palette.armDark)
-        drawArmoredFist(backHand, armThickness * 1.02f, palette.gloveColor, f.def.primaryColor)
+        drawAnatomicalLimb(backShoulder, backElbow, bicepR, forearmR, palette.sleeveDark, palette.pantsDeepShadow, dir, null, bulgeBias = 1.12f)
+        drawAnatomicalLimb(backElbow, backHand, forearmR, wristR, palette.armDark, palette.skinShade, dir, null, bulgeBias = 1.10f)
+        drawDetailedFist(backHand, wristR * 1.48f, dir, palette.gloveColor, palette.gloveShade, f.def.primaryColor)
     }
 
-    // --- CEL-SHADED TORSO & OUTFIT ---
-    drawCharacterTorso(
+    // --- SCULPTED CEL-SHADED TORSO & OUTFIT ---
+    drawSculptedTorso(
         f = f,
         shoulderCenter = shoulderCenter,
+        waistCenter = waistCenter,
         hipCenter = hipCenter,
         shoulderHalfW = shoulderHalfW,
+        waistHalfW = waistHalfW,
         hipHalfW = hipHalfW,
         unit = unit,
         dir = dir,
         palette = palette,
-        timeMs = timeMs
+        flashWhite = flashWhite
     )
 
-    // --- HEAD, FACE, HAIR, VISOR / GLASSES / LEAF CROWN ---
-    drawCharacterHead(
+    // --- ANATOMICAL NECK + ANIME HEAD, JAWLINE, EYES, HAIR ---
+    drawAnatomicalLimb(neckBase, headCenter, unit * 0.052f, unit * 0.044f, palette.skinShade, palette.skinDeepShade, dir, null, bulgeBias = 1.0f)
+    drawAnimeHead(
         f = f,
         headCenter = headCenter,
         unit = unit,
         dir = dir,
         palette = palette,
-        timeMs = timeMs
+        timeMs = timeMs,
+        flashWhite = flashWhite
     )
 
     // --- FRONT ATTACKING / GUARD ARM & WEAPON ---
     val (frontElbow, frontHand) = when {
         isSweeping -> {
-            val e = Offset(frontShoulder.x - dir * unit * 0.10f, frontShoulder.y + unit * 0.06f)
+            val e = Offset(frontShoulder.x - dir * unit * 0.12f, frontShoulder.y + unit * 0.06f)
             val h = Offset(e.x - dir * unit * 0.12f, e.y - unit * 0.06f)
             e to h
         }
         f.chargingMegaPunch -> {
-            // Pulled back coiled power punch!
-            val e = Offset(frontShoulder.x - dir * unit * 0.18f, frontShoulder.y + unit * 0.05f)
-            val h = Offset(frontShoulder.x - dir * unit * 0.28f, frontShoulder.y - unit * 0.04f)
+            val e = Offset(frontShoulder.x - dir * unit * 0.22f, frontShoulder.y + unit * 0.06f)
+            val h = Offset(frontShoulder.x - dir * unit * 0.34f, frontShoulder.y - unit * 0.04f)
             e to h
         }
         f.action == CombatAction.CLASSIC -> {
-            val e = Offset(frontShoulder.x + dir * unit * 0.18f, frontShoulder.y + unit * 0.01f)
-            val h = Offset(frontShoulder.x + dir * unit * 0.42f, frontShoulder.y - unit * 0.02f)
+            val ext = (0.22f + 0.27f * strikeCurve).coerceAtLeast(0.05f)
+            val e = Offset(frontShoulder.x + dir * unit * (ext * 0.46f), frontShoulder.y + unit * 0.01f)
+            val h = Offset(frontShoulder.x + dir * unit * ext, frontShoulder.y - unit * 0.025f)
             e to h
         }
         f.action == CombatAction.BASE_ABILITY -> {
-            val e = Offset(frontShoulder.x + dir * unit * 0.22f, frontShoulder.y - unit * 0.02f)
-            val h = Offset(frontShoulder.x + dir * unit * 0.48f, frontShoulder.y - unit * 0.07f)
+            val ext = (0.24f + 0.31f * strikeCurve).coerceAtLeast(0.05f)
+            val e = Offset(frontShoulder.x + dir * unit * (ext * 0.48f), frontShoulder.y - unit * 0.025f)
+            val h = Offset(frontShoulder.x + dir * unit * ext, frontShoulder.y - unit * 0.08f)
             e to h
         }
         f.action == CombatAction.ULTI -> {
-            val e = Offset(frontShoulder.x + dir * unit * 0.24f, frontShoulder.y - unit * 0.05f)
-            val h = Offset(frontShoulder.x + dir * unit * 0.52f, frontShoulder.y - unit * 0.12f)
+            val ext = (0.26f + 0.34f * strikeCurve).coerceAtLeast(0.06f)
+            val e = Offset(frontShoulder.x + dir * unit * (ext * 0.48f), frontShoulder.y - unit * 0.05f)
+            val h = Offset(frontShoulder.x + dir * unit * ext, frontShoulder.y - unit * 0.125f)
             e to h
         }
         f.action == CombatAction.BLOCK -> {
@@ -317,20 +375,20 @@ internal fun DrawScope.drawDetailedFighter(
             e to h
         }
         else -> {
-            val e = Offset(frontShoulder.x + dir * unit * 0.06f, frontShoulder.y + unit * 0.14f)
-            val h = Offset(frontShoulder.x + dir * unit * 0.22f, shoulderCenter.y + unit * 0.03f)
+            val e = Offset(frontShoulder.x + dir * unit * 0.065f, frontShoulder.y + unit * 0.14f + idleBob * 0.5f)
+            val h = Offset(frontShoulder.x + dir * unit * 0.24f, shoulderCenter.y + unit * 0.03f + idleBob * 0.8f)
             e to h
         }
     }
 
-    drawTaperedLimb(frontShoulder, frontElbow, armThickness, armThickness * 0.88f, palette.sleeveLight, palette.sleeveDark)
-    drawTaperedLimb(frontElbow, frontHand, armThickness * 0.88f, armThickness * 0.78f, palette.armLight, palette.armDark)
-    drawArmoredFist(frontHand, armThickness * 1.15f, palette.gloveColor, f.def.accentColor)
+    drawAnatomicalLimb(frontShoulder, frontElbow, bicepR, forearmR, palette.sleeveLight, palette.sleeveDark, dir, f.def.primaryColor.copy(alpha = 0.36f), bulgeBias = 1.15f)
+    drawAnatomicalLimb(frontElbow, frontHand, forearmR, wristR, palette.armLight, palette.armDark, dir, f.def.accentColor.copy(alpha = 0.34f), bulgeBias = 1.14f)
+    drawDetailedFist(frontHand, wristR * 1.56f, dir, palette.gloveColor, palette.gloveShade, f.def.accentColor)
 
-    // Jardin Colossal Punch swirling power vortex on fist while charging!
+    // Jardin Colossal Punch swirling power vortex
     if (f.chargingMegaPunch) {
         val pulse = 1f + 0.18f * sin(timeMs * 0.035f)
-        val auraR = unit * 0.36f * pulse
+        val auraR = unit * 0.44f * pulse
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(Color.White, Color(0xFFFFD600), Color(0xFF00E676), Color.Transparent),
@@ -340,45 +398,60 @@ internal fun DrawScope.drawDetailedFighter(
             radius = auraR,
             center = frontHand
         )
-        // Spinning energy ring
-        val rot = (timeMs * 0.6f) % 360f
+        val rot = (timeMs * 0.70f) % 360f
         drawArc(
             color = Color(0xFFFFD600),
             startAngle = rot,
-            sweepAngle = 210f,
+            sweepAngle = 220f,
             useCenter = false,
-            topLeft = Offset(frontHand.x - auraR * 0.75f, frontHand.y - auraR * 0.75f),
-            size = Size(auraR * 1.5f, auraR * 1.5f),
-            style = Stroke(width = 5f, cap = StrokeCap.Round)
+            topLeft = Offset(frontHand.x - auraR * 0.78f, frontHand.y - auraR * 0.78f),
+            size = Size(auraR * 1.56f, auraR * 1.56f),
+            style = Stroke(width = 6f, cap = StrokeCap.Round)
         )
+        for (orb in 0..5) {
+            val ang = (timeMs * 0.013f) + orb * (2f * PI.toFloat() / 6f)
+            val ox = frontHand.x + cos(ang) * auraR * 0.94f
+            val oy = frontHand.y + sin(ang) * auraR * 0.80f
+            drawCircle(
+                color = if (orb % 2 == 0) Color(0xFF00E676) else Color(0xFFFFC400),
+                radius = 5.6f,
+                center = Offset(ox, oy)
+            )
+            drawCircle(
+                color = InkOutline,
+                radius = 5.6f,
+                center = Offset(ox, oy),
+                style = Stroke(width = 1.8f)
+            )
+        }
     }
 
-    // Maître Chen's twin golden & jade chopsticks!
+    // Maître Chen's twin golden & jade chopsticks with engraved tip bands
     if (f.def.visualStyle == FighterVisualStyle.CHINOIS_BAGUETTES) {
         val attacking = f.action in setOf(CombatAction.CLASSIC, CombatAction.BASE_ABILITY, CombatAction.ULTI)
-        val stickLen = if (attacking) unit * 0.44f else unit * 0.28f
-        val tip1 = Offset(frontHand.x + dir * stickLen, frontHand.y - unit * 0.06f)
-        val tip2 = Offset(frontHand.x + dir * stickLen * 0.94f, frontHand.y + unit * 0.05f)
-        // Dark outline + glowing stick
-        drawLine(InkOutline, frontHand, tip1, strokeWidth = 7f, cap = StrokeCap.Round)
-        drawLine(Color(0xFFFFD600), frontHand, tip1, strokeWidth = 3.8f, cap = StrokeCap.Round)
-        drawLine(InkOutline, frontHand, tip2, strokeWidth = 6.5f, cap = StrokeCap.Round)
-        drawLine(Color(0xFF00E676), frontHand, tip2, strokeWidth = 3.5f, cap = StrokeCap.Round)
+        val stickLen = if (attacking) unit * (0.36f + 0.16f * strikeCurve.coerceAtLeast(0f)) else unit * 0.30f
+        val tip1 = Offset(frontHand.x + dir * stickLen, frontHand.y - unit * 0.065f)
+        val tip2 = Offset(frontHand.x + dir * stickLen * 0.94f, frontHand.y + unit * 0.055f)
+        drawLine(InkOutline, frontHand, tip1, strokeWidth = 8f, cap = StrokeCap.Round)
+        drawLine(Color(0xFFFFD600), frontHand, tip1, strokeWidth = 4.2f, cap = StrokeCap.Round)
+        drawLine(InkOutline, frontHand, tip2, strokeWidth = 7.5f, cap = StrokeCap.Round)
+        drawLine(Color(0xFF00E676), frontHand, tip2, strokeWidth = 3.8f, cap = StrokeCap.Round)
     }
 
-    // Hexagonal/Arc Guard Shield
+    // Hexagonal Guilty Gear Faultless-Defense Style Barrier Shield
     if (f.isBlocking) {
-        val shieldX = cx + dir * unit * 0.25f
-        val shieldTop = headCenter.y - unit * 0.05f
-        val shieldH = unit * 0.66f
+        val shieldX = cx + dir * unit * 0.27f
+        val shieldTop = headCenter.y - unit * 0.08f
+        val shieldH = unit * 0.72f
         val shieldPath = Path().apply {
             moveTo(shieldX, shieldTop)
-            lineTo(shieldX + dir * unit * 0.14f, shieldTop + shieldH * 0.22f)
-            lineTo(shieldX + dir * unit * 0.14f, shieldTop + shieldH * 0.78f)
+            lineTo(shieldX + dir * unit * 0.17f, shieldTop + shieldH * 0.20f)
+            lineTo(shieldX + dir * unit * 0.17f, shieldTop + shieldH * 0.80f)
             lineTo(shieldX, shieldTop + shieldH)
         }
-        drawPath(shieldPath, color = GuardBlue.copy(alpha = 0.22f))
-        drawPath(shieldPath, color = GuardBlue, style = Stroke(width = 5.5f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(shieldPath, color = GuardBlue.copy(alpha = 0.28f))
+        drawPath(shieldPath, color = GuardBlue, style = Stroke(width = 6.5f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(shieldPath, color = Color.White.copy(alpha = 0.75f), style = Stroke(width = 2.2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
@@ -391,9 +464,8 @@ private fun DrawScope.drawKoPose(
     timeMs: Long
 ) {
     val palette = fighterPalette(f.def.visualStyle, false)
-    val bodyLen = unit * 0.72f
+    val bodyLen = unit * 0.76f
     val thickness = unit * 0.16f * wScale
-    // Lying horizontally on floor
     drawRoundRect(
         brush = Brush.verticalGradient(listOf(palette.torsoLight, palette.torsoDark)),
         topLeft = Offset(cx - bodyLen * 0.5f, groundY - thickness),
@@ -405,15 +477,13 @@ private fun DrawScope.drawKoPose(
         topLeft = Offset(cx - bodyLen * 0.5f, groundY - thickness),
         size = Size(bodyLen, thickness),
         cornerRadius = CornerRadius(14f, 14f),
-        style = Stroke(width = 3.2f)
+        style = Stroke(width = 3.4f)
     )
-    // Head resting on left/right
     val headX = cx - f.facing * bodyLen * 0.45f
     val headY = groundY - thickness * 0.75f
     drawCircle(color = palette.skinLight, radius = unit * 0.11f, center = Offset(headX, headY))
     drawCircle(color = InkOutline, radius = unit * 0.11f, center = Offset(headX, headY), style = Stroke(width = 3f))
 
-    // Spinning KO stars above head
     for (s in 0..2) {
         val ang = timeMs * 0.006f + s * (2f * PI.toFloat() / 3f)
         val sx = headX + cos(ang) * unit * 0.14f
@@ -432,19 +502,20 @@ private fun DrawScope.drawBackAccessories(
     flashWhite: Boolean
 ) {
     if (flashWhite) return
-    val wave = sin(timeMs * 0.012f) * unit * 0.045f
+    val wave = sin(timeMs * 0.013f) * unit * 0.05f
+    val wave2 = cos(timeMs * 0.016f) * unit * 0.035f
     when (f.def.visualStyle) {
         FighterVisualStyle.GLITCHERMAN -> {
-            // Flowing cyber-neon scarf ribbon
+            // Dual trailing cyber-scarf ribbons
             val scarf = Path().apply {
                 moveTo(shoulderCenter.x - dir * unit * 0.05f, shoulderCenter.y - unit * 0.02f)
                 quadraticTo(
-                    shoulderCenter.x - dir * unit * 0.25f,
-                    shoulderCenter.y + unit * 0.04f + wave,
-                    shoulderCenter.x - dir * unit * 0.40f,
+                    shoulderCenter.x - dir * unit * 0.28f,
+                    shoulderCenter.y + unit * 0.03f + wave,
+                    shoulderCenter.x - dir * unit * 0.48f,
                     shoulderCenter.y + unit * 0.12f - wave
                 )
-                lineTo(shoulderCenter.x - dir * unit * 0.34f, shoulderCenter.y + unit * 0.18f - wave)
+                lineTo(shoulderCenter.x - dir * unit * 0.40f, shoulderCenter.y + unit * 0.20f - wave2)
                 quadraticTo(
                     shoulderCenter.x - dir * unit * 0.20f,
                     shoulderCenter.y + unit * 0.10f + wave,
@@ -454,310 +525,498 @@ private fun DrawScope.drawBackAccessories(
                 close()
             }
             drawPath(scarf, brush = Brush.horizontalGradient(listOf(Color(0xFFFF2A85), Color(0xFF00E5FF))))
-            drawPath(scarf, color = InkOutline, style = Stroke(width = 2.5f))
+            drawPath(scarf, color = InkOutline, style = Stroke(width = 2.8f, join = StrokeJoin.Round))
         }
         FighterVisualStyle.CHINOIS_BAGUETTES -> {
-            // Fluttering martial headband tails
-            val band = Path().apply {
-                moveTo(headCenter.x - dir * unit * 0.06f, headCenter.y - unit * 0.04f)
-                quadraticTo(
-                    headCenter.x - dir * unit * 0.24f,
-                    headCenter.y - unit * 0.02f + wave,
-                    headCenter.x - dir * unit * 0.36f,
-                    headCenter.y + unit * 0.08f - wave
-                )
-                lineTo(headCenter.x - dir * unit * 0.32f, headCenter.y + unit * 0.13f - wave)
-                quadraticTo(
-                    headCenter.x - dir * unit * 0.18f,
-                    headCenter.y + unit * 0.04f + wave,
-                    headCenter.x - dir * unit * 0.05f,
-                    headCenter.y
-                )
-                close()
+            // Twin fluttering crimson martial headband tails
+            for (tail in 0..1) {
+                val offsetY = tail * unit * 0.045f
+                val band = Path().apply {
+                    moveTo(headCenter.x - dir * unit * 0.06f, headCenter.y - unit * 0.04f + offsetY * 0.4f)
+                    quadraticTo(
+                        headCenter.x - dir * unit * 0.26f,
+                        headCenter.y - unit * 0.02f + wave + offsetY,
+                        headCenter.x - dir * unit * (0.42f - tail * 0.06f),
+                        headCenter.y + unit * 0.08f - wave + offsetY
+                    )
+                    lineTo(headCenter.x - dir * unit * (0.36f - tail * 0.06f), headCenter.y + unit * 0.13f - wave + offsetY)
+                    quadraticTo(
+                        headCenter.x - dir * unit * 0.18f,
+                        headCenter.y + unit * 0.04f + wave + offsetY * 0.5f,
+                        headCenter.x - dir * unit * 0.05f,
+                        headCenter.y + offsetY * 0.4f
+                    )
+                    close()
+                }
+                drawPath(band, color = if (tail == 0) Color(0xFFE50000) else Color(0xFF9E0000))
+                drawPath(band, color = InkOutline, style = Stroke(width = 2.4f))
             }
-            drawPath(band, color = Color(0xFFD50000))
-            drawPath(band, color = InkOutline, style = Stroke(width = 2.2f))
         }
         FighterVisualStyle.JARDIN -> {
-            // Rugged mossy cape/leaf mantle
+            // Jagged mossy leaf-cloak mantle
             val cape = Path().apply {
                 moveTo(shoulderCenter.x - dir * unit * 0.12f, shoulderCenter.y)
-                lineTo(shoulderCenter.x - dir * unit * 0.28f, shoulderCenter.y + unit * 0.28f + wave * 0.5f)
-                lineTo(shoulderCenter.x - dir * unit * 0.08f, shoulderCenter.y + unit * 0.32f)
+                lineTo(shoulderCenter.x - dir * unit * 0.34f, shoulderCenter.y + unit * 0.30f + wave * 0.5f)
+                lineTo(shoulderCenter.x - dir * unit * 0.20f, shoulderCenter.y + unit * 0.27f)
+                lineTo(shoulderCenter.x - dir * unit * 0.14f, shoulderCenter.y + unit * 0.37f)
+                lineTo(shoulderCenter.x - dir * unit * 0.04f, shoulderCenter.y + unit * 0.30f)
                 close()
             }
-            drawPath(cape, color = Color(0xFF133A22))
-            drawPath(cape, color = InkOutline, style = Stroke(width = 2.8f))
+            drawPath(cape, brush = Brush.verticalGradient(listOf(Color(0xFF1E5631), Color(0xFF0C2615))))
+            drawPath(cape, color = InkOutline, style = Stroke(width = 3f, join = StrokeJoin.Round))
         }
         FighterVisualStyle.DARON_BRESILIEN -> {
-            // Fluttering back edge of open summer jacket
+            // Open flowing summer jacket tails
             val flap = Path().apply {
                 moveTo(shoulderCenter.x - dir * unit * 0.14f, shoulderCenter.y + unit * 0.06f)
-                lineTo(shoulderCenter.x - dir * unit * 0.24f, shoulderCenter.y + unit * 0.34f + wave * 0.5f)
-                lineTo(shoulderCenter.x - dir * unit * 0.08f, shoulderCenter.y + unit * 0.34f)
+                lineTo(shoulderCenter.x - dir * unit * 0.28f, shoulderCenter.y + unit * 0.36f + wave * 0.5f)
+                lineTo(shoulderCenter.x - dir * unit * 0.08f, shoulderCenter.y + unit * 0.36f)
                 close()
             }
-            drawPath(flap, color = Color(0xFFE0B400))
-            drawPath(flap, color = InkOutline, style = Stroke(width = 2.5f))
+            drawPath(flap, color = Color(0xFFD9AE00))
+            drawPath(flap, color = InkOutline, style = Stroke(width = 2.8f, join = StrokeJoin.Round))
         }
     }
 }
 
-private fun DrawScope.drawCharacterTorso(
+private fun DrawScope.drawSculptedTorso(
     f: FighterRuntime,
     shoulderCenter: Offset,
+    waistCenter: Offset,
     hipCenter: Offset,
     shoulderHalfW: Float,
+    waistHalfW: Float,
     hipHalfW: Float,
     unit: Float,
     dir: Float,
     palette: FighterPalette,
-    timeMs: Long
+    flashWhite: Boolean
 ) {
+    val isTank = f.def.visualStyle == FighterVisualStyle.DARON_BRESILIEN
+    val wMid = if (isTank) shoulderHalfW * 0.96f else waistHalfW
+
+    // Sculpted upper-to-lower torso silhouette with curved ribcage/waist
     val torsoPath = Path().apply {
         moveTo(shoulderCenter.x - shoulderHalfW, shoulderCenter.y)
         lineTo(shoulderCenter.x + shoulderHalfW, shoulderCenter.y)
-        lineTo(hipCenter.x + hipHalfW, hipCenter.y + unit * 0.03f)
+        quadraticTo(
+            waistCenter.x + wMid * 1.05f,
+            waistCenter.y,
+            hipCenter.x + hipHalfW,
+            hipCenter.y + unit * 0.03f
+        )
         lineTo(hipCenter.x - hipHalfW, hipCenter.y + unit * 0.03f)
+        quadraticTo(
+            waistCenter.x - wMid * 1.05f,
+            waistCenter.y,
+            shoulderCenter.x - shoulderHalfW,
+            shoulderCenter.y
+        )
         close()
     }
-    drawPath(
-        path = torsoPath,
-        brush = Brush.horizontalGradient(
-            colors = if (dir > 0) listOf(palette.torsoDark, palette.torsoLight) else listOf(palette.torsoLight, palette.torsoDark),
-            startX = shoulderCenter.x - shoulderHalfW,
-            endX = shoulderCenter.x + shoulderHalfW
+
+    // Base fill
+    drawPath(torsoPath, color = palette.torsoLight)
+
+    if (!flashWhite) {
+        // Hard-edge cel-shadow cut on back side of torso (Guilty Gear style)
+        val shadowSidePath = Path().apply {
+            if (dir > 0) {
+                moveTo(shoulderCenter.x - shoulderHalfW, shoulderCenter.y)
+                lineTo(shoulderCenter.x - shoulderHalfW * 0.05f, shoulderCenter.y)
+                lineTo(waistCenter.x - wMid * 0.15f, waistCenter.y)
+                lineTo(hipCenter.x - hipHalfW * 0.10f, hipCenter.y + unit * 0.03f)
+                lineTo(hipCenter.x - hipHalfW, hipCenter.y + unit * 0.03f)
+                quadraticTo(waistCenter.x - wMid * 1.05f, waistCenter.y, shoulderCenter.x - shoulderHalfW, shoulderCenter.y)
+            } else {
+                moveTo(shoulderCenter.x + shoulderHalfW, shoulderCenter.y)
+                lineTo(shoulderCenter.x + shoulderHalfW * 0.05f, shoulderCenter.y)
+                lineTo(waistCenter.x + wMid * 0.15f, waistCenter.y)
+                lineTo(hipCenter.x + hipHalfW * 0.10f, hipCenter.y + unit * 0.03f)
+                lineTo(hipCenter.x + hipHalfW, hipCenter.y + unit * 0.03f)
+                quadraticTo(waistCenter.x + wMid * 1.05f, waistCenter.y, shoulderCenter.x + shoulderHalfW, shoulderCenter.y)
+            }
+            close()
+        }
+        drawPath(shadowSidePath, color = palette.torsoDark)
+
+        // Sharp front rim highlight
+        val rimX1 = shoulderCenter.x + dir * (shoulderHalfW * 0.86f)
+        val rimX2 = hipCenter.x + dir * (hipHalfW * 0.86f)
+        drawLine(
+            color = f.def.primaryColor.copy(alpha = 0.55f),
+            start = Offset(rimX1, shoulderCenter.y + unit * 0.02f),
+            end = Offset(rimX2, hipCenter.y),
+            strokeWidth = 3.2f,
+            cap = StrokeCap.Round
         )
-    )
-    drawPath(torsoPath, color = InkOutline, style = Stroke(width = 3.5f, join = StrokeJoin.Round))
+    }
+
+    drawPath(torsoPath, color = InkOutline, style = Stroke(width = 3.8f, join = StrokeJoin.Round))
+
+    if (flashWhite) return
 
     when (f.def.visualStyle) {
         FighterVisualStyle.GLITCHERMAN -> {
-            // High cyber-hoodie collar + neon circuit chest trim
+            // High cyber jacket collar + glowing neon lapels + chest emblem
+            val collar = Path().apply {
+                moveTo(shoulderCenter.x - shoulderHalfW * 0.42f, shoulderCenter.y)
+                lineTo(shoulderCenter.x - shoulderHalfW * 0.52f, shoulderCenter.y - unit * 0.075f)
+                lineTo(shoulderCenter.x + shoulderHalfW * 0.48f, shoulderCenter.y - unit * 0.075f)
+                lineTo(shoulderCenter.x + shoulderHalfW * 0.40f, shoulderCenter.y)
+                close()
+            }
+            drawPath(collar, color = Color(0xFF18223C))
+            drawPath(collar, color = InkOutline, style = Stroke(width = 2.6f))
             drawLine(
                 color = Color(0xFF00E5FF),
-                start = Offset(shoulderCenter.x - shoulderHalfW * 0.55f, shoulderCenter.y + unit * 0.06f),
-                end = Offset(hipCenter.x + hipHalfW * 0.55f, hipCenter.y - unit * 0.04f),
-                strokeWidth = 4f,
+                start = Offset(shoulderCenter.x - shoulderHalfW * 0.52f, shoulderCenter.y + unit * 0.05f),
+                end = Offset(hipCenter.x + hipHalfW * 0.50f, hipCenter.y - unit * 0.04f),
+                strokeWidth = 4.2f,
                 cap = StrokeCap.Round
             )
             drawLine(
                 color = Color(0xFFFF2A85),
-                start = Offset(shoulderCenter.x + shoulderHalfW * 0.45f, shoulderCenter.y + unit * 0.08f),
-                end = Offset(hipCenter.x - hipHalfW * 0.40f, hipCenter.y - unit * 0.06f),
-                strokeWidth = 3f,
+                start = Offset(shoulderCenter.x + shoulderHalfW * 0.46f, shoulderCenter.y + unit * 0.08f),
+                end = Offset(hipCenter.x - hipHalfW * 0.40f, hipCenter.y - unit * 0.05f),
+                strokeWidth = 3.2f,
                 cap = StrokeCap.Round
+            )
+            // Holo core badge
+            drawCircle(
+                color = Color(0xFF00E5FF),
+                radius = unit * 0.024f,
+                center = Offset(shoulderCenter.x + dir * unit * 0.03f, shoulderCenter.y + unit * 0.14f)
+            )
+            // Tech waist belt
+            drawRoundRect(
+                color = Color(0xFF0E121E),
+                topLeft = Offset(hipCenter.x - hipHalfW * 1.04f, hipCenter.y - unit * 0.03f),
+                size = Size(hipHalfW * 2.08f, unit * 0.05f),
+                cornerRadius = CornerRadius(4f, 4f)
+            )
+            drawRect(
+                color = Color(0xFFFF2A85),
+                topLeft = Offset(hipCenter.x + dir * hipHalfW * 0.1f - unit * 0.03f, hipCenter.y - unit * 0.026f),
+                size = Size(unit * 0.06f, unit * 0.042f)
             )
         }
         FighterVisualStyle.JARDIN -> {
-            // Massive living-bark shoulder armor & glowing emerald-gold chest core
-            val pauldronL = Offset(shoulderCenter.x - shoulderHalfW * 0.9f, shoulderCenter.y + unit * 0.02f)
-            val pauldronR = Offset(shoulderCenter.x + shoulderHalfW * 0.9f, shoulderCenter.y + unit * 0.02f)
-            drawCircle(color = Color(0xFF2E5C38), radius = unit * 0.09f, center = pauldronL)
-            drawCircle(color = InkOutline, radius = unit * 0.09f, center = pauldronL, style = Stroke(width = 3f))
-            drawCircle(color = Color(0xFF2E5C38), radius = unit * 0.09f, center = pauldronR)
-            drawCircle(color = InkOutline, radius = unit * 0.09f, center = pauldronR, style = Stroke(width = 3f))
-
-            val coreCenter = Offset((shoulderCenter.x + hipCenter.x) * 0.5f + dir * unit * 0.03f, shoulderCenter.y + unit * 0.14f)
+            // Jagged living-bark shoulder armor pauldrons + chest pec lines + glowing nature core
+            for (sideSign in listOf(-1f, 1f)) {
+                val px = shoulderCenter.x + sideSign * shoulderHalfW * 0.92f
+                val py = shoulderCenter.y + unit * 0.01f
+                val pauldron = Path().apply {
+                    moveTo(px - sideSign * unit * 0.05f, py - unit * 0.06f)
+                    lineTo(px + sideSign * unit * 0.11f, py - unit * 0.09f)
+                    lineTo(px + sideSign * unit * 0.09f, py + unit * 0.07f)
+                    lineTo(px - sideSign * unit * 0.05f, py + unit * 0.05f)
+                    close()
+                }
+                drawPath(pauldron, color = Color(0xFF285732))
+                drawPath(pauldron, color = InkOutline, style = Stroke(width = 3f, join = StrokeJoin.Round))
+            }
+            // Pectoral bark plates
+            drawLine(
+                color = InkOutline,
+                start = Offset(shoulderCenter.x - shoulderHalfW * 0.45f, shoulderCenter.y + unit * 0.12f),
+                end = Offset(shoulderCenter.x + shoulderHalfW * 0.45f, shoulderCenter.y + unit * 0.12f),
+                strokeWidth = 2.4f
+            )
+            val coreCenter = Offset((shoulderCenter.x + hipCenter.x) * 0.5f + dir * unit * 0.03f, shoulderCenter.y + unit * 0.15f)
             drawCircle(
                 brush = Brush.radialGradient(listOf(Color.White, Color(0xFFFFC400), Color(0xFF00E676))),
-                radius = unit * 0.062f,
+                radius = unit * 0.068f,
                 center = coreCenter
             )
+            drawCircle(color = InkOutline, radius = unit * 0.068f, center = coreCenter, style = Stroke(width = 2.4f))
         }
         FighterVisualStyle.CHINOIS_BAGUETTES -> {
-            // Gold silk lapel trim & fluttering waist sash
+            // Traditional crossed martial gi lapel with gold embroidery + tied sash belt
             drawLine(
                 color = Color(0xFFFFD600),
-                start = Offset(shoulderCenter.x, shoulderCenter.y + unit * 0.02f),
-                end = Offset(hipCenter.x + dir * hipHalfW * 0.35f, hipCenter.y),
+                start = Offset(shoulderCenter.x - dir * shoulderHalfW * 0.2f, shoulderCenter.y + unit * 0.02f),
+                end = Offset(hipCenter.x + dir * hipHalfW * 0.4f, hipCenter.y),
                 strokeWidth = 4.5f,
                 cap = StrokeCap.Round
             )
-            // Gold waist belt
+            drawLine(
+                color = Color(0xFFFFD600),
+                start = Offset(shoulderCenter.x + dir * shoulderHalfW * 0.35f, shoulderCenter.y + unit * 0.02f),
+                end = Offset(waistCenter.x, waistCenter.y + unit * 0.03f),
+                strokeWidth = 3.5f,
+                cap = StrokeCap.Round
+            )
+            // Tied black-gold martial waist sash
             drawRoundRect(
-                color = Color(0xFF14161F),
-                topLeft = Offset(hipCenter.x - hipHalfW * 1.04f, hipCenter.y - unit * 0.035f),
-                size = Size(hipHalfW * 2.08f, unit * 0.055f),
+                color = Color(0xFF11131C),
+                topLeft = Offset(hipCenter.x - hipHalfW * 1.06f, hipCenter.y - unit * 0.035f),
+                size = Size(hipHalfW * 2.12f, unit * 0.056f),
                 cornerRadius = CornerRadius(4f, 4f)
+            )
+            drawCircle(
+                color = Color(0xFFFFD600),
+                radius = unit * 0.028f,
+                center = Offset(hipCenter.x + dir * hipHalfW * 0.25f, hipCenter.y - unit * 0.008f)
             )
         }
         FighterVisualStyle.DARON_BRESILIEN -> {
-            // Open summer jacket chest V + gleaming gold medallion + green tropical leaf accents
+            // Open summer jacket showing bare chest + gold chain medallion + bold palm-leaf patterns
             val chestV = Path().apply {
-                moveTo(shoulderCenter.x - shoulderHalfW * 0.25f, shoulderCenter.y)
-                lineTo(shoulderCenter.x + dir * unit * 0.02f, hipCenter.y - unit * 0.04f)
-                lineTo(shoulderCenter.x + shoulderHalfW * 0.42f, shoulderCenter.y)
+                moveTo(shoulderCenter.x - shoulderHalfW * 0.22f, shoulderCenter.y)
+                lineTo(shoulderCenter.x + dir * unit * 0.02f, hipCenter.y - unit * 0.02f)
+                lineTo(shoulderCenter.x + shoulderHalfW * 0.44f, shoulderCenter.y)
                 close()
             }
             drawPath(chestV, color = palette.skinLight)
-            drawPath(chestV, color = InkOutline, style = Stroke(width = 2.5f))
-            // Gold necklace medallion
+            drawPath(chestV, color = InkOutline, style = Stroke(width = 2.6f, join = StrokeJoin.Round))
+            // Gold chain & medallion
+            drawLine(
+                color = Color(0xFFFFD600),
+                start = Offset(shoulderCenter.x - shoulderHalfW * 0.14f, shoulderCenter.y + unit * 0.01f),
+                end = Offset(shoulderCenter.x + dir * unit * 0.02f, shoulderCenter.y + unit * 0.13f),
+                strokeWidth = 2.2f
+            )
+            drawLine(
+                color = Color(0xFFFFD600),
+                start = Offset(shoulderCenter.x + shoulderHalfW * 0.34f, shoulderCenter.y + unit * 0.01f),
+                end = Offset(shoulderCenter.x + dir * unit * 0.02f, shoulderCenter.y + unit * 0.13f),
+                strokeWidth = 2.2f
+            )
             drawCircle(
                 color = Color(0xFFFFD600),
-                radius = unit * 0.034f,
-                center = Offset(shoulderCenter.x + dir * unit * 0.02f, shoulderCenter.y + unit * 0.13f)
+                radius = unit * 0.036f,
+                center = Offset(shoulderCenter.x + dir * unit * 0.02f, shoulderCenter.y + unit * 0.14f)
             )
-            // Green tropical leaf graphics on summer jacket
-            drawLine(
-                color = Color(0xFF00C853),
-                start = Offset(shoulderCenter.x - shoulderHalfW * 0.72f, shoulderCenter.y + unit * 0.08f),
-                end = Offset(hipCenter.x - hipHalfW * 0.50f, hipCenter.y - unit * 0.05f),
-                strokeWidth = 5.5f,
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = Color(0xFF00C853),
-                start = Offset(shoulderCenter.x + shoulderHalfW * 0.72f, shoulderCenter.y + unit * 0.09f),
-                end = Offset(hipCenter.x + hipHalfW * 0.56f, hipCenter.y - unit * 0.05f),
-                strokeWidth = 5.5f,
-                cap = StrokeCap.Round
-            )
+            drawCircle(color = InkOutline, radius = unit * 0.036f, center = Offset(shoulderCenter.x + dir * unit * 0.02f, shoulderCenter.y + unit * 0.14f), style = Stroke(width = 1.6f))
+            // Tropical palm leaf accents on summer jacket
+            for (sx in listOf(-0.68f, 0.72f)) {
+                drawLine(
+                    color = Color(0xFF00C853),
+                    start = Offset(shoulderCenter.x + shoulderHalfW * sx, shoulderCenter.y + unit * 0.08f),
+                    end = Offset(hipCenter.x + hipHalfW * (sx * 0.72f), hipCenter.y - unit * 0.05f),
+                    strokeWidth = 5.5f,
+                    cap = StrokeCap.Round
+                )
+            }
         }
     }
 }
 
-private fun DrawScope.drawCharacterHead(
+private fun DrawScope.drawAnimeHead(
     f: FighterRuntime,
     headCenter: Offset,
     unit: Float,
     dir: Float,
     palette: FighterPalette,
-    timeMs: Long
+    timeMs: Long,
+    flashWhite: Boolean
 ) {
-    val headR = unit * (if (f.def.visualStyle == FighterVisualStyle.JARDIN) 0.118f else 0.105f)
-    // Head circle with cel-shaded gradient
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(palette.skinLight, palette.skinShade),
-            center = Offset(headCenter.x + dir * headR * 0.25f, headCenter.y - headR * 0.2f),
-            radius = headR * 1.4f
-        ),
-        radius = headR,
-        center = headCenter
-    )
-    drawCircle(color = InkOutline, radius = headR, center = headCenter, style = Stroke(width = 3.2f))
+    val headR = unit * (if (f.def.visualStyle == FighterVisualStyle.JARDIN) 0.120f else 0.106f)
+
+    // Sculpted anime head with sharp chin & jawline facing `dir`
+    val headPath = Path().apply {
+        moveTo(headCenter.x - dir * headR * 0.85f, headCenter.y - headR * 0.65f)
+        quadraticTo(headCenter.x, headCenter.y - headR * 1.15f, headCenter.x + dir * headR * 0.90f, headCenter.y - headR * 0.55f)
+        lineTo(headCenter.x + dir * headR * 0.94f, headCenter.y + headR * 0.25f)
+        // Sharp anime chin point
+        lineTo(headCenter.x + dir * headR * 0.42f, headCenter.y + headR * 1.05f)
+        // Jawline back toward ear
+        lineTo(headCenter.x - dir * headR * 0.65f, headCenter.y + headR * 0.62f)
+        quadraticTo(headCenter.x - dir * headR * 1.00f, headCenter.y, headCenter.x - dir * headR * 0.85f, headCenter.y - headR * 0.65f)
+        close()
+    }
+
+    drawPath(headPath, color = palette.skinLight)
+    if (!flashWhite) {
+        // Hard cel-shadow along back cheek/jaw
+        val cheekShadow = Path().apply {
+            moveTo(headCenter.x - dir * headR * 0.85f, headCenter.y - headR * 0.65f)
+            lineTo(headCenter.x - dir * headR * 0.18f, headCenter.y - headR * 0.45f)
+            lineTo(headCenter.x - dir * headR * 0.25f, headCenter.y + headR * 0.78f)
+            lineTo(headCenter.x - dir * headR * 0.65f, headCenter.y + headR * 0.62f)
+            quadraticTo(headCenter.x - dir * headR * 1.00f, headCenter.y, headCenter.x - dir * headR * 0.85f, headCenter.y - headR * 0.65f)
+            close()
+        }
+        drawPath(cheekShadow, color = palette.skinShade)
+    }
+    drawPath(headPath, color = InkOutline, style = Stroke(width = 3.2f, join = StrokeJoin.Round))
+
+    if (flashWhite) return
 
     when (f.def.visualStyle) {
         FighterVisualStyle.GLITCHERMAN -> {
-            // Spiky anime cyber-hair
+            // Swept anime cyber-spikes
             val hair = Path().apply {
-                moveTo(headCenter.x - headR * 0.95f, headCenter.y - headR * 0.1f)
-                lineTo(headCenter.x - headR * 1.1f, headCenter.y - headR * 0.95f)
-                lineTo(headCenter.x - headR * 0.25f, headCenter.y - headR * 0.72f)
-                lineTo(headCenter.x + dir * headR * 0.25f, headCenter.y - headR * 1.25f)
-                lineTo(headCenter.x + headR * 0.85f, headCenter.y - headR * 0.65f)
-                lineTo(headCenter.x + headR * 0.95f, headCenter.y - headR * 0.15f)
+                moveTo(headCenter.x - dir * headR * 0.95f, headCenter.y + headR * 0.1f)
+                lineTo(headCenter.x - dir * headR * 1.35f, headCenter.y - headR * 0.60f)
+                lineTo(headCenter.x - dir * headR * 0.75f, headCenter.y - headR * 0.68f)
+                lineTo(headCenter.x - dir * headR * 1.05f, headCenter.y - headR * 1.25f)
+                lineTo(headCenter.x - dir * headR * 0.15f, headCenter.y - headR * 0.85f)
+                lineTo(headCenter.x + dir * headR * 0.35f, headCenter.y - headR * 1.42f)
+                lineTo(headCenter.x + dir * headR * 0.78f, headCenter.y - headR * 0.80f)
+                lineTo(headCenter.x + dir * headR * 1.15f, headCenter.y - headR * 0.45f)
+                lineTo(headCenter.x + dir * headR * 0.62f, headCenter.y - headR * 0.30f)
                 close()
             }
-            drawPath(hair, color = Color(0xFF141A2E))
-            drawPath(hair, color = InkOutline, style = Stroke(width = 2.6f))
-            // Glowing magenta-cyan holographic visor!
-            val visorL = headCenter.x + (if (dir > 0) -headR * 0.12f else -headR * 0.96f)
-            drawRoundRect(
-                brush = Brush.horizontalGradient(listOf(Color(0xFFFF2A85), Color(0xFF00E5FF))),
-                topLeft = Offset(visorL, headCenter.y - headR * 0.34f),
-                size = Size(headR * 1.08f, headR * 0.44f),
-                cornerRadius = CornerRadius(5f, 5f)
+            drawPath(hair, color = Color(0xFF141B30))
+            drawPath(hair, color = InkOutline, style = Stroke(width = 2.6f, join = StrokeJoin.Round))
+
+            // Sharp angular Guilty Gear cyber-visor
+            val visorPath = Path().apply {
+                moveTo(headCenter.x - dir * headR * 0.10f, headCenter.y - headR * 0.34f)
+                lineTo(headCenter.x + dir * headR * 1.04f, headCenter.y - headR * 0.42f)
+                lineTo(headCenter.x + dir * headR * 0.96f, headCenter.y + headR * 0.08f)
+                lineTo(headCenter.x + dir * headR * 0.02f, headCenter.y + headR * 0.02f)
+                close()
+            }
+            drawPath(visorPath, brush = Brush.horizontalGradient(listOf(Color(0xFFFF2A85), Color(0xFF00E5FF))))
+            drawPath(visorPath, color = InkOutline, style = Stroke(width = 2.2f))
+            // Glint bar
+            val scanOffset = 0.25f + 0.40f * (0.5f + 0.5f * sin(timeMs * 0.008f))
+            drawLine(
+                color = Color.White.copy(alpha = 0.88f),
+                start = Offset(headCenter.x + dir * headR * scanOffset, headCenter.y - headR * 0.24f),
+                end = Offset(headCenter.x + dir * headR * (scanOffset + 0.30f), headCenter.y - headR * 0.05f),
+                strokeWidth = 2.6f,
+                cap = StrokeCap.Round
             )
-            drawRoundRect(
-                color = Color.White.copy(alpha = 0.75f),
-                topLeft = Offset(visorL + headR * 0.12f, headCenter.y - headR * 0.22f),
-                size = Size(headR * 0.82f, headR * 0.10f),
-                cornerRadius = CornerRadius(3f, 3f)
+            // Determined smirk line
+            drawLine(
+                color = InkOutline,
+                start = Offset(headCenter.x + dir * headR * 0.25f, headCenter.y + headR * 0.52f),
+                end = Offset(headCenter.x + dir * headR * 0.64f, headCenter.y + headR * 0.45f),
+                strokeWidth = 2.2f,
+                cap = StrokeCap.Round
             )
         }
 
         FighterVisualStyle.JARDIN -> {
-            // Leaf crown horns
+            // Jagged emerald leaf-horn crown
             val crown = Path().apply {
-                moveTo(headCenter.x - headR * 0.9f, headCenter.y - headR * 0.45f)
-                lineTo(headCenter.x - headR * 1.15f, headCenter.y - headR * 1.30f)
-                lineTo(headCenter.x - headR * 0.2f, headCenter.y - headR * 0.85f)
-                lineTo(headCenter.x + headR * 0.15f, headCenter.y - headR * 1.38f)
-                lineTo(headCenter.x + headR * 0.95f, headCenter.y - headR * 0.50f)
+                moveTo(headCenter.x - dir * headR * 0.9f, headCenter.y - headR * 0.4f)
+                lineTo(headCenter.x - dir * headR * 1.3f, headCenter.y - headR * 1.38f)
+                lineTo(headCenter.x - dir * headR * 0.25f, headCenter.y - headR * 0.85f)
+                lineTo(headCenter.x + dir * headR * 0.20f, headCenter.y - headR * 1.48f)
+                lineTo(headCenter.x + dir * headR * 0.98f, headCenter.y - headR * 0.50f)
                 close()
             }
-            drawPath(crown, color = Color(0xFF00C853))
-            drawPath(crown, color = InkOutline, style = Stroke(width = 2.8f))
-            // Glowing golden amber eye
-            drawCircle(
-                color = Color(0xFFFFC400),
-                radius = headR * 0.24f,
-                center = Offset(headCenter.x + dir * headR * 0.42f, headCenter.y - headR * 0.12f)
+            drawPath(crown, brush = Brush.verticalGradient(listOf(Color(0xFF69F0AE), Color(0xFF00C853))))
+            drawPath(crown, color = InkOutline, style = Stroke(width = 2.8f, join = StrokeJoin.Round))
+
+            // Fierce glowing amber anime eye + furrowed brow
+            val eyeCenter = Offset(headCenter.x + dir * headR * 0.46f, headCenter.y - headR * 0.08f)
+            drawCircle(color = Color(0xFFFFD600), radius = headR * 0.22f, center = eyeCenter)
+            drawCircle(color = Color.White, radius = headR * 0.09f, center = eyeCenter)
+            drawLine(
+                color = InkOutline,
+                start = Offset(headCenter.x + dir * headR * 0.14f, headCenter.y - headR * 0.34f),
+                end = Offset(headCenter.x + dir * headR * 0.84f, headCenter.y - headR * 0.16f),
+                strokeWidth = 3.2f,
+                cap = StrokeCap.Round
             )
         }
 
         FighterVisualStyle.CHINOIS_BAGUETTES -> {
-            // High black hair bun + sharp hair cap
-            drawCircle(color = Color(0xFF11131B), radius = headR * 0.42f, center = Offset(headCenter.x - dir * headR * 0.1f, headCenter.y - headR * 1.18f))
-            drawArc(
-                color = Color(0xFF11131B),
-                startAngle = 175f,
-                sweepAngle = 190f,
-                useCenter = true,
-                topLeft = Offset(headCenter.x - headR * 1.02f, headCenter.y - headR * 1.08f),
-                size = Size(headR * 2.04f, headR * 1.15f)
+            // High samurai topknot bun + sharp bangs
+            drawCircle(
+                color = Color(0xFF10121A),
+                radius = headR * 0.45f,
+                center = Offset(headCenter.x - dir * headR * 0.18f, headCenter.y - headR * 1.24f)
             )
+            drawCircle(
+                color = InkOutline,
+                radius = headR * 0.45f,
+                center = Offset(headCenter.x - dir * headR * 0.18f, headCenter.y - headR * 1.24f),
+                style = Stroke(width = 2.4f)
+            )
+            val hair = Path().apply {
+                moveTo(headCenter.x - dir * headR * 0.96f, headCenter.y + headR * 0.05f)
+                lineTo(headCenter.x - dir * headR * 0.92f, headCenter.y - headR * 0.72f)
+                quadraticTo(headCenter.x, headCenter.y - headR * 1.22f, headCenter.x + dir * headR * 0.95f, headCenter.y - headR * 0.52f)
+                lineTo(headCenter.x + dir * headR * 0.55f, headCenter.y - headR * 0.32f)
+                close()
+            }
+            drawPath(hair, color = Color(0xFF10121A))
+
             // Crimson headband strip
-            drawRect(
-                color = Color(0xFFD50000),
-                topLeft = Offset(headCenter.x - headR * 0.95f, headCenter.y - headR * 0.48f),
-                size = Size(headR * 1.90f, headR * 0.22f)
+            drawLine(
+                color = Color(0xFFE50000),
+                start = Offset(headCenter.x - dir * headR * 0.90f, headCenter.y - headR * 0.44f),
+                end = Offset(headCenter.x + dir * headR * 0.94f, headCenter.y - headR * 0.36f),
+                strokeWidth = headR * 0.28f,
+                cap = StrokeCap.Butt
             )
-            // Focused white/dark eye
+            // Sharp anime eye + brow
+            drawLine(
+                color = InkOutline,
+                start = Offset(headCenter.x + dir * headR * 0.22f, headCenter.y - headR * 0.20f),
+                end = Offset(headCenter.x + dir * headR * 0.78f, headCenter.y - headR * 0.08f),
+                strokeWidth = 2.8f,
+                cap = StrokeCap.Round
+            )
             drawCircle(
                 color = Color(0xFF10131C),
                 radius = headR * 0.15f,
-                center = Offset(headCenter.x + dir * headR * 0.46f, headCenter.y - headR * 0.08f)
+                center = Offset(headCenter.x + dir * headR * 0.50f, headCenter.y - headR * 0.02f)
+            )
+            drawCircle(
+                color = Color.White,
+                radius = headR * 0.055f,
+                center = Offset(headCenter.x + dir * headR * 0.53f, headCenter.y - headR * 0.04f)
             )
         }
 
         FighterVisualStyle.DARON_BRESILIEN -> {
-            // Slicked dark hair
-            drawArc(
-                color = Color(0xFF1E1714),
-                startAngle = 185f,
-                sweepAngle = 170f,
-                useCenter = true,
-                topLeft = Offset(headCenter.x - headR * 1.02f, headCenter.y - headR * 1.05f),
-                size = Size(headR * 2.04f, headR * 1.05f)
-            )
-            // Cool dark aviator sunglasses with white reflection
-            val glassL = headCenter.x + (if (dir > 0) -headR * 0.08f else -headR * 0.92f)
-            drawRoundRect(
-                color = Color(0xFF0E1118),
-                topLeft = Offset(glassL, headCenter.y - headR * 0.34f),
-                size = Size(headR * 1.00f, headR * 0.42f),
-                cornerRadius = CornerRadius(4f, 4f)
-            )
+            // Slicked dark hair sweep
+            val hair = Path().apply {
+                moveTo(headCenter.x - dir * headR * 0.94f, headCenter.y - headR * 0.10f)
+                quadraticTo(headCenter.x - dir * headR * 0.4f, headCenter.y - headR * 1.24f, headCenter.x + dir * headR * 0.92f, headCenter.y - headR * 0.52f)
+                lineTo(headCenter.x + dir * headR * 0.42f, headCenter.y - headR * 0.38f)
+                close()
+            }
+            drawPath(hair, color = Color(0xFF1E1714))
+
+            // Sharp angular aviator sunglasses with specular gleam
+            val glassPath = Path().apply {
+                moveTo(headCenter.x - dir * headR * 0.05f, headCenter.y - headR * 0.32f)
+                lineTo(headCenter.x + dir * headR * 0.96f, headCenter.y - headR * 0.34f)
+                lineTo(headCenter.x + dir * headR * 0.86f, headCenter.y + headR * 0.12f)
+                lineTo(headCenter.x + dir * headR * 0.06f, headCenter.y + headR * 0.08f)
+                close()
+            }
+            drawPath(glassPath, color = Color(0xFF0C1018))
+            drawPath(glassPath, color = Color(0xFFFFD600), style = Stroke(width = 2.0f))
             drawLine(
-                color = Color.White.copy(alpha = 0.65f),
-                start = Offset(glassL + headR * 0.15f, headCenter.y - headR * 0.26f),
-                end = Offset(glassL + headR * 0.36f, headCenter.y - headR * 0.02f),
+                color = Color.White.copy(alpha = 0.78f),
+                start = Offset(headCenter.x + dir * headR * 0.25f, headCenter.y - headR * 0.24f),
+                end = Offset(headCenter.x + dir * headR * 0.50f, headCenter.y + headR * 0.02f),
                 strokeWidth = 2.5f
             )
-            // Lush handlebar mustache
+            // Charismatic handlebar mustache
             drawArc(
                 color = Color(0xFF241610),
                 startAngle = 195f,
                 sweepAngle = 150f,
                 useCenter = false,
-                topLeft = Offset(headCenter.x + dir * headR * 0.05f - headR * 0.42f, headCenter.y + headR * 0.22f),
+                topLeft = Offset(headCenter.x + dir * headR * 0.10f - headR * 0.42f, headCenter.y + headR * 0.24f),
                 size = Size(headR * 0.84f, headR * 0.36f),
-                style = Stroke(width = 6f, cap = StrokeCap.Round)
+                style = Stroke(width = 6.2f, cap = StrokeCap.Round)
             )
         }
     }
 }
 
-private fun DrawScope.drawTaperedLimb(
+private fun DrawScope.drawAnatomicalLimb(
     start: Offset,
     end: Offset,
     rStart: Float,
     rEnd: Float,
     fillLight: Color,
-    fillDark: Color
+    fillDark: Color,
+    dir: Float,
+    rimColor: Color?,
+    bulgeBias: Float = 1.12f
 ) {
     val dx = end.x - start.x
     val dy = end.y - start.y
@@ -767,65 +1026,119 @@ private fun DrawScope.drawTaperedLimb(
     val px = -uy
     val py = ux
 
+    val midX = (start.x + end.x) * 0.5f
+    val midY = (start.y + end.y) * 0.5f
+    val midR = ((rStart + rEnd) * 0.5f) * bulgeBias
+
     val path = Path().apply {
         moveTo(start.x + px * rStart, start.y + py * rStart)
-        lineTo(end.x + px * rEnd, end.y + py * rEnd)
+        quadraticTo(midX + px * midR, midY + py * midR, end.x + px * rEnd, end.y + py * rEnd)
         quadraticTo(end.x + ux * rEnd * 1.15f, end.y + uy * rEnd * 1.15f, end.x - px * rEnd, end.y - py * rEnd)
-        lineTo(start.x - px * rStart, start.y - py * rStart)
+        quadraticTo(midX - px * midR, midY - py * midR, start.x - px * rStart, start.y - py * rStart)
         quadraticTo(start.x - ux * rStart * 1.15f, start.y - uy * rStart * 1.15f, start.x + px * rStart, start.y + py * rStart)
         close()
     }
+    // Hard cel-shaded dual-tone split across muscle length
     drawPath(
         path = path,
         brush = Brush.linearGradient(
-            colors = listOf(fillLight, fillDark),
-            start = Offset(start.x + px * rStart, start.y + py * rStart),
-            end = Offset(end.x - px * rEnd, end.y - py * rEnd)
+            0.0f to fillLight,
+            0.58f to fillLight,
+            0.62f to fillDark,
+            1.0f to fillDark,
+            start = Offset(midX + px * midR, midY + py * midR),
+            end = Offset(midX - px * midR, midY - py * midR)
         )
     )
-    drawPath(path, color = InkOutline, style = Stroke(width = 3.0f, join = StrokeJoin.Round))
+    if (rimColor != null) {
+        drawLine(
+            color = rimColor,
+            start = Offset(start.x + dir * rStart * 0.35f, start.y),
+            end = Offset(end.x + dir * rEnd * 0.35f, end.y),
+            strokeWidth = 2.4f,
+            cap = StrokeCap.Round
+        )
+    }
+    drawPath(path, color = InkOutline, style = Stroke(width = 3.2f, join = StrokeJoin.Round))
 }
 
-private fun DrawScope.drawArmoredFist(
+private fun DrawScope.drawDetailedFist(
     center: Offset,
     radius: Float,
+    dir: Float,
     fill: Color,
-    highlight: Color
+    shade: Color,
+    rimColor: Color
 ) {
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(highlight, fill),
-            center = Offset(center.x - radius * 0.25f, center.y - radius * 0.25f),
-            radius = radius * 1.3f
-        ),
-        radius = radius,
-        center = center
+    // Sculpted knuckle-and-thumb fist silhouette instead of plain sphere
+    val w = radius * 1.24f
+    val h = radius * 1.05f
+    val fistPath = Path().apply {
+        moveTo(center.x - dir * w * 0.65f, center.y - h * 0.55f)
+        lineTo(center.x + dir * w * 0.62f, center.y - h * 0.68f)
+        lineTo(center.x + dir * w * 0.90f, center.y - h * 0.10f)
+        lineTo(center.x + dir * w * 0.72f, center.y + h * 0.75f)
+        lineTo(center.x - dir * w * 0.55f, center.y + h * 0.68f)
+        close()
+    }
+    drawPath(
+        fistPath,
+        brush = Brush.verticalGradient(
+            0.0f to fill,
+            0.56f to fill,
+            0.60f to shade,
+            1.0f to shade,
+            startY = center.y - h,
+            endY = center.y + h
+        )
     )
-    drawCircle(color = InkOutline, radius = radius, center = center, style = Stroke(width = 3.0f))
+    drawLine(
+        color = rimColor.copy(alpha = 0.85f),
+        start = Offset(center.x + dir * w * 0.62f, center.y - h * 0.60f),
+        end = Offset(center.x + dir * w * 0.84f, center.y - h * 0.08f),
+        strokeWidth = 2.4f,
+        cap = StrokeCap.Round
+    )
+    // Knuckle ridge crease
+    drawLine(
+        color = InkOutline,
+        start = Offset(center.x + dir * w * 0.25f, center.y - h * 0.35f),
+        end = Offset(center.x + dir * w * 0.25f, center.y + h * 0.35f),
+        strokeWidth = 2.0f
+    )
+    drawPath(fistPath, color = InkOutline, style = Stroke(width = 3.0f, join = StrokeJoin.Round))
 }
 
-private fun DrawScope.drawFighterBoot(
+private fun DrawScope.drawDetailedBoot(
     ankle: Offset,
     dir: Float,
     unit: Float,
-    shoeColor: Color
+    shoeColor: Color,
+    trimColor: Color
 ) {
-    val w = unit * 0.135f
-    val h = unit * 0.068f
-    val left = if (dir > 0) ankle.x - w * 0.28f else ankle.x - w * 0.72f
-    drawRoundRect(
-        color = shoeColor,
-        topLeft = Offset(left, ankle.y - h * 0.35f),
-        size = Size(w, h),
-        cornerRadius = CornerRadius(6f, 6f)
+    val w = unit * 0.155f
+    val h = unit * 0.078f
+    val backX = ankle.x - dir * w * 0.26f
+    val frontX = ankle.x + dir * w * 0.78f
+    val topY = ankle.y - h * 0.38f
+    val botY = ankle.y + h * 0.62f
+
+    val bootPath = Path().apply {
+        moveTo(backX, topY)
+        lineTo(ankle.x + dir * w * 0.22f, topY)
+        lineTo(frontX, ankle.y + h * 0.05f)
+        lineTo(frontX, botY)
+        lineTo(backX, botY)
+        close()
+    }
+    drawPath(bootPath, color = shoeColor)
+    drawLine(
+        color = trimColor,
+        start = Offset(backX, botY - h * 0.16f),
+        end = Offset(frontX, botY - h * 0.16f),
+        strokeWidth = h * 0.24f
     )
-    drawRoundRect(
-        color = InkOutline,
-        topLeft = Offset(left, ankle.y - h * 0.35f),
-        size = Size(w, h),
-        cornerRadius = CornerRadius(6f, 6f),
-        style = Stroke(width = 2.8f)
-    )
+    drawPath(bootPath, color = InkOutline, style = Stroke(width = 2.8f, join = StrokeJoin.Round))
 }
 
 private data class QuadOffsets(
@@ -843,74 +1156,94 @@ private data class FighterPalette(
     val armLight: Color,
     val armDark: Color,
     val gloveColor: Color,
+    val gloveShade: Color,
     val pantsLight: Color,
     val pantsDark: Color,
+    val pantsDeepShadow: Color,
     val shoeColor: Color,
+    val shoeTrim: Color,
     val skinLight: Color,
-    val skinShade: Color
+    val skinShade: Color,
+    val skinDeepShade: Color
 )
 
 private fun fighterPalette(style: FighterVisualStyle, flashWhite: Boolean): FighterPalette {
     if (flashWhite) {
         val w = Color.White
-        return FighterPalette(w, w, w, w, w, w, w, w, w, w, w, w)
+        return FighterPalette(w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w)
     }
     return when (style) {
         FighterVisualStyle.GLITCHERMAN -> FighterPalette(
-            torsoLight = Color(0xFF223052),
-            torsoDark = Color(0xFF12182C),
-            sleeveLight = Color(0xFF223052),
-            sleeveDark = Color(0xFF141B30),
-            armLight = Color(0xFF1A223B),
-            armDark = Color(0xFF101526),
+            torsoLight = Color(0xFF283963),
+            torsoDark = Color(0xFF10172D),
+            sleeveLight = Color(0xFF283963),
+            sleeveDark = Color(0xFF141C35),
+            armLight = Color(0xFF1C2642),
+            armDark = Color(0xFF0E1424),
             gloveColor = Color(0xFF00E5FF),
-            pantsLight = Color(0xFF1C2338),
-            pantsDark = Color(0xFF0E121F),
+            gloveShade = Color(0xFF0091B5),
+            pantsLight = Color(0xFF1F2740),
+            pantsDark = Color(0xFF0F1424),
+            pantsDeepShadow = Color(0xFF080B14),
             shoeColor = Color(0xFFFF2A85),
-            skinLight = Color(0xFFF2D8C4),
-            skinShade = Color(0xFFC9A68E)
+            shoeTrim = Color(0xFF00E5FF),
+            skinLight = Color(0xFFF4DAC6),
+            skinShade = Color(0xFFCBA68C),
+            skinDeepShade = Color(0xFF9F7A62)
         )
         FighterVisualStyle.JARDIN -> FighterPalette(
-            torsoLight = Color(0xFF276B3F),
-            torsoDark = Color(0xFF143820),
-            sleeveLight = Color(0xFF2D5935),
-            sleeveDark = Color(0xFF18361E),
-            armLight = Color(0xFF3E7539),
-            armDark = Color(0xFF234A22),
+            torsoLight = Color(0xFF2E7D4A),
+            torsoDark = Color(0xFF133B22),
+            sleeveLight = Color(0xFF33683E),
+            sleeveDark = Color(0xFF18381E),
+            armLight = Color(0xFF42803E),
+            armDark = Color(0xFF234B22),
             gloveColor = Color(0xFF00E676),
-            pantsLight = Color(0xFF2B4D2E),
-            pantsDark = Color(0xFF172B19),
+            gloveShade = Color(0xFF00A152),
+            pantsLight = Color(0xFF2E5431),
+            pantsDark = Color(0xFF162C19),
+            pantsDeepShadow = Color(0xFF0C1A0E),
             shoeColor = Color(0xFF4E342E),
-            skinLight = Color(0xFF478241),
-            skinShade = Color(0xFF274D24)
+            shoeTrim = Color(0xFF00C853),
+            skinLight = Color(0xFF4B8A45),
+            skinShade = Color(0xFF295226),
+            skinDeepShade = Color(0xFF193617)
         )
         FighterVisualStyle.CHINOIS_BAGUETTES -> FighterPalette(
-            torsoLight = Color(0xFFD32F2F),
-            torsoDark = Color(0xFF8E0000),
-            sleeveLight = Color(0xFFD32F2F),
-            sleeveDark = Color(0xFF8E0000),
-            armLight = Color(0xFFF3D4B8),
-            armDark = Color(0xFFC8A182),
+            torsoLight = Color(0xFFE03838),
+            torsoDark = Color(0xFF8C0000),
+            sleeveLight = Color(0xFFE03838),
+            sleeveDark = Color(0xFF8C0000),
+            armLight = Color(0xFFF4D5B9),
+            armDark = Color(0xFFC8A080),
             gloveColor = Color(0xFFFFD600),
-            pantsLight = Color(0xFF252836),
-            pantsDark = Color(0xFF12141C),
+            gloveShade = Color(0xFFC79C00),
+            pantsLight = Color(0xFF282B3B),
+            pantsDark = Color(0xFF141621),
+            pantsDeepShadow = Color(0xFF0B0C12),
             shoeColor = Color(0xFFF5F5F5),
-            skinLight = Color(0xFFF3D4B8),
-            skinShade = Color(0xFFC8A182)
+            shoeTrim = Color(0xFFD50000),
+            skinLight = Color(0xFFF4D5B9),
+            skinShade = Color(0xFFC8A080),
+            skinDeepShade = Color(0xFF9E775A)
         )
         FighterVisualStyle.DARON_BRESILIEN -> FighterPalette(
-            torsoLight = Color(0xFFFFE033),
-            torsoDark = Color(0xFFD4A700),
-            sleeveLight = Color(0xFFFFE033),
-            sleeveDark = Color(0xFFD4A700),
-            armLight = Color(0xFFE0B08A),
+            torsoLight = Color(0xFFFFE23B),
+            torsoDark = Color(0xFFD1A300),
+            sleeveLight = Color(0xFFFFE23B),
+            sleeveDark = Color(0xFFD1A300),
+            armLight = Color(0xFFE2B28D),
             armDark = Color(0xFFB5825E),
             gloveColor = Color(0xFF00C853),
+            gloveShade = Color(0xFF008E3A),
             pantsLight = Color(0xFF1E88E5),
             pantsDark = Color(0xFF0D47A1),
+            pantsDeepShadow = Color(0xFF072B66),
             shoeColor = Color(0xFFFFD600),
-            skinLight = Color(0xFFE0B08A),
-            skinShade = Color(0xFFB5825E)
+            shoeTrim = Color.White,
+            skinLight = Color(0xFFE2B28D),
+            skinShade = Color(0xFFB5825E),
+            skinDeepShade = Color(0xFF8C6040)
         )
     }
 }

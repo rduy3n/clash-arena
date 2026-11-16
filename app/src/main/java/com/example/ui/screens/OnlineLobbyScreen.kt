@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -111,7 +113,7 @@ fun OnlineLobbyScreen(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(max = 600.dp)
+                .widthIn(max = 760.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -390,6 +392,8 @@ private fun ActiveRoomLobbyContent(
     val bothJoined = room.guestId.isNotBlank()
     val bothReady = room.hostReady && room.guestReady && bothJoined
 
+    val context = LocalContext.current
+
     // Room Code Card
     Surface(
         color = ObsidianSurface,
@@ -409,13 +413,33 @@ private fun ActiveRoomLobbyContent(
                     Text("Code copié !", style = MaterialTheme.typography.labelSmall, color = EmeraldHp)
                 }
             }
-            OutlinedButton(
-                onClick = onCopyCode,
-                modifier = Modifier.testTag("copy_room_code_button")
-            ) {
-                Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = ElectricCyan)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("COPIER", color = ElectricCyan)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onCopyCode,
+                    modifier = Modifier.testTag("copy_room_code_button")
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copier", tint = ElectricCyan)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("COPIER", color = ElectricCyan)
+                }
+                Button(
+                    onClick = {
+                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                Intent.EXTRA_TEXT,
+                                "Rejoins mon combat sur Clash Arena ! Code du salon : ${room.roomCode}"
+                            )
+                        }
+                        context.startActivity(Intent.createChooser(sendIntent, "Partager le code du salon"))
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = FlameOrange, contentColor = Color.White),
+                    modifier = Modifier.testTag("share_room_code_button")
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = "Partager", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("PARTAGER")
+                }
             }
         }
     }

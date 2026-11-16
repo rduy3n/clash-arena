@@ -192,6 +192,22 @@
         "p2X", "p2Y", "p2Facing", "p2Action", "p2ActionSeq", "p2Blocking", "p2Ulti", "p2DealtDmg",
         "createdAt", "updatedAt"
       ]
+    },
+    "PlaytestFeedback": {
+      "title": "PlaytestFeedback",
+      "description": "Playtester feedback submitted after IRL or online testing sessions.",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string", "description": "Firebase UID of the submitting user." },
+        "authorName": { "type": "string", "description": "Tester display name (1-40 chars)." },
+        "modeTested": { "type": "string", "enum": ["IRL", "En ligne", "Vs Bot", "Entraînement"] },
+        "category": { "type": "string", "enum": ["Équilibrage", "Graphismes", "Contrôles", "Bug", "Idée"] },
+        "fighterId": { "type": "string", "description": "Target fighter ID or 'all'." },
+        "rating": { "type": "integer", "description": "Score from 1 to 5." },
+        "comment": { "type": "string", "description": "Feedback comment (3-400 chars)." },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "authorName", "modeTested", "category", "fighterId", "rating", "comment", "createdAt"]
     }
   },
   "firestore": {
@@ -202,6 +218,10 @@
     "/match_rooms/{roomId}": {
       "schema": { "$ref": "#/entities/MatchRoom" },
       "description": "Online 1v1 fighting game rooms keyed by 6-character room code."
+    },
+    "/playtest_feedbacks/{feedbackId}": {
+      "schema": { "$ref": "#/entities/PlaytestFeedback" },
+      "description": "Shared playtester feedback notes for IRL and online test sessions."
     }
   }
 }

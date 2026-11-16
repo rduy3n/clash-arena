@@ -1,6 +1,7 @@
 package com.example.game.engine
 
 import androidx.compose.ui.graphics.Color
+import com.example.game.audio.SoundEffect
 import com.example.game.data.ArenaStage
 import com.example.game.data.BotDifficulty
 import com.example.game.data.ComboInputStep
@@ -92,6 +93,8 @@ class CombatEngine(
                 vy = 0f,
                 action = CombatAction.IDLE
             ),
+            bannerText = state.bannerText,
+            ultiCinematic = null,
             projectiles = emptyList(),
             popups = state.popups + FloatingPopup(
                 id = nextId(),
@@ -110,7 +113,32 @@ class CombatEngine(
         botDifficulty: BotDifficulty = BotDifficulty.NORMAL
     ): ArenaWorldState {
         val clampedDt = dtMs.coerceIn(1L, 50L)
-        var next = ageEffects(state, clampedDt)
+        val clearedState = state.copy(soundEvents = emptyList())
+
+        // If a 2-second slow-motion Ulti cinematic is active, run bullet-time simulation
+        val activeCine = clearedState.ultiCinematic
+        if (activeCine != null) {
+            val nextRem = (activeCine.remainingMs - clampedDt).coerceAtLeast(0L)
+            val slowDt = (clampedDt * 0.16f).toLong().coerceAtLeast(1L)
+            var next = ageEffects(clearedState, slowDt)
+            next = simulateSlowMoTick(next, slowDt)
+            return if (nextRem > 0L) {
+                next.copy(ultiCinematic = activeCine.copy(remainingMs = nextRem))
+            } else {
+                // Cinematic finished: release the real Ulti flash & impact!
+                val caster = if (activeCine.casterSide == 1) next.p1 else next.p2
+                next.copy(
+                    ultiCinematic = null,
+                    ultiFlashMs = 380L,
+                    ultiFlashColor = activeCine.primaryColor,
+                    screenShakeMs = 260L,
+                    p1 = if (activeCine.casterSide == 1) caster.copy(actionTimerMs = caster.def.ultimateMove.startupMs) else next.p1,
+                    p2 = if (activeCine.casterSide == 2) caster.copy(actionTimerMs = caster.def.ultimateMove.startupMs) else next.p2
+                )
+            }
+        }
+
+        var next = ageEffects(clearedState, clampedDt)
 
         if (next.mode == GameMode.TRAINING) {
             return stepTraining(next, clampedDt, p1Input)
@@ -122,7 +150,12 @@ class CombatEngine(
                 when {
                     rem > 600L -> next.copy(phaseTimerMs = rem, bannerText = "ROUND ${next.roundNumber}")
                     rem > 0L -> next.copy(phaseTimerMs = rem, bannerText = "COMBAT !")
-                    else -> next.copy(phase = MatchPhase.FIGHTING, phaseTimerMs = 0L, bannerText = "")
+                    else -> next.copy(
+                        phase = MatchPhase.FIGHTING,
+                        phaseTimerMs = 0L,
+                        bannerText = "",
+                        soundEvents = next.soundEvents + SoundEffect.ROUND_START
+                    )
                 }
             }
 
@@ -152,6 +185,10 @@ class CombatEngine(
                     val p2Wins = next.p2RoundsWon + if (roundWinner == 2) 1 else 0
                     val matchFinished = p1Wins >= 2 || p2Wins >= 2
                     val banner = if (p1Dead || p2Dead) "K.O. !" else "TEMPS ÉCOULÉ !"
+                    val endSounds = buildList {
+                        add(SoundEffect.KO_BOOM)
+                        if (matchFinished) add(SoundEffect.VICTORY_FANFARE)
+                    }
                     next.copy(
                         phase = if (matchFinished) MatchPhase.MATCH_OVER else MatchPhase.ROUND_END,
                         phaseTimerMs = if (matchFinished) 0L else 2200L,
@@ -159,6 +196,7 @@ class CombatEngine(
                         p2RoundsWon = p2Wins,
                         winnerSide = if (matchFinished) roundWinner else 0,
                         bannerText = banner,
+                        soundEvents = next.soundEvents + endSounds,
                         p1 = if (p1Dead) next.p1.copy(action = CombatAction.KO) else next.p1,
                         p2 = if (p2Dead) next.p2.copy(action = CombatAction.KO) else next.p2
                     )
@@ -180,6 +218,7 @@ class CombatEngine(
                         roundTimeRemainingSec = 99,
                         roundClockAccumMs = 0L,
                         bannerText = "ROUND $nextRound",
+                        ultiCinematic = null,
                         projectiles = emptyList(),
                         p1 = next.p1.copy(
                             x = 0.25f, y = 0f, vy = 0f, facing = 1,
@@ -248,30 +287,88 @@ class CombatEngine(
         return next
     }
 
+    private fun simulateSlowMoTick(state: ArenaWorldState, slowDt: Long): ArenaWorldState {
+        // Keep fighters in slow-motion kinematics while freezing Ulti hit startup until cinematic ends
+        val p1 = updateFighterKinematics(state.p1, PlayerInput(), state.p2.x, slowDt).let { f ->
+            if (f.action == CombatAction.ULTI) {
+                f.copy(actionTimerMs = f.actionTimerMs.coerceAtMost((f.def.ultimateMove.startupMs - 10L).coerceAtLeast(0L)))
+            } else f
+        }
+        val p2 = updateFighterKinematics(state.p2, PlayerInput(), state.p1.x, slowDt).let { f ->
+            if (f.action == CombatAction.ULTI) {
+                f.copy(actionTimerMs = f.actionTimerMs.coerceAtMost((f.def.ultimateMove.startupMs - 10L).coerceAtLeast(0L)))
+            } else f
+        }
+        return state.copy(p1 = p1, p2 = p2)
+    }
+
     fun simulateCombatTick(
         state: ArenaWorldState,
         dtMs: Long,
         p1Input: PlayerInput,
         p2Input: PlayerInput
     ): ArenaWorldState {
+        val spawnedSounds = mutableListOf<SoundEffect>()
+        val p1WasGrounded = state.p1.y <= 0.001f
+        val p2WasGrounded = state.p2.y <= 0.001f
+
         var p1 = updateFighterKinematics(state.p1, p1Input, state.p2.x, dtMs)
         var p2 = updateFighterKinematics(state.p2, p2Input, state.p1.x, dtMs)
+
+        if (p1WasGrounded && p1.y > 0.001f) spawnedSounds += SoundEffect.JUMP
+        if (p2WasGrounded && p2.y > 0.001f) spawnedSounds += SoundEffect.JUMP
 
         val spawnEffects = mutableListOf<SlashEffect>()
         val spawnProjectiles = mutableListOf<Projectile>()
 
-        p1 = tryTriggerAttack(p1, p1Input, spawnEffects, spawnProjectiles)
-        p2 = tryTriggerAttack(p2, p2Input, spawnEffects, spawnProjectiles)
+        val p1PrevSeq = p1.actionSeq
+        val p2PrevSeq = p2.actionSeq
 
+        p1 = tryTriggerAttack(p1, p1Input, spawnEffects, spawnProjectiles, spawnedSounds)
+        p2 = tryTriggerAttack(p2, p2Input, spawnEffects, spawnProjectiles, spawnedSounds)
+
+        val p1StartedUlti = p1.action == CombatAction.ULTI && p1.actionSeq != p1PrevSeq
+        val p2StartedUlti = p2.action == CombatAction.ULTI && p2.actionSeq != p2PrevSeq
+
+        var nextCine = state.ultiCinematic
         var flashMs = state.ultiFlashMs
         var flashColor = state.ultiFlashColor
-        if (p1.action == CombatAction.ULTI && p1.actionTimerMs <= dtMs) {
+        if (p1StartedUlti) {
             flashMs = 340L
             flashColor = p1.def.primaryColor
-        }
-        if (p2.action == CombatAction.ULTI && p2.actionTimerMs <= dtMs) {
+            nextCine = UltiCinematicState(
+                casterSide = 1,
+                fighterId = p1.def.id,
+                moveName = p1.def.ultimateMove.name,
+                remainingMs = 2000L,
+                totalMs = 2000L,
+                visualStyle = p1.def.visualStyle,
+                primaryColor = p1.def.primaryColor,
+                accentColor = p1.def.accentColor
+            )
+            // Extend duration slightly so Ulti remains active after 2s slow-mo
+            p1 = p1.copy(actionDurationMs = p1.actionDurationMs + 360L)
+        } else if (p2StartedUlti) {
             flashMs = 340L
             flashColor = p2.def.primaryColor
+            nextCine = UltiCinematicState(
+                casterSide = 2,
+                fighterId = p2.def.id,
+                moveName = p2.def.ultimateMove.name,
+                remainingMs = 2000L,
+                totalMs = 2000L,
+                visualStyle = p2.def.visualStyle,
+                primaryColor = p2.def.primaryColor,
+                accentColor = p2.def.accentColor
+            )
+            p2 = p2.copy(actionDurationMs = p2.actionDurationMs + 360L)
+        }
+
+        // Extend spawned Ulti slash effect lifetime if entering 2s slow-mo cinematic
+        val adjustedEffects = if (p1StartedUlti || p2StartedUlti) {
+            spawnEffects.map { it.copy(maxAgeMs = it.maxAgeMs + 420L) }
+        } else {
+            spawnEffects
         }
 
         var nextState = state.copy(
@@ -279,14 +376,18 @@ class CombatEngine(
             p2 = p2,
             ultiFlashMs = flashMs,
             ultiFlashColor = flashColor,
-            slashEffects = state.slashEffects + spawnEffects,
-            projectiles = state.projectiles + spawnProjectiles
+            ultiCinematic = nextCine,
+            slashEffects = state.slashEffects + adjustedEffects,
+            projectiles = state.projectiles + spawnProjectiles,
+            soundEvents = state.soundEvents + spawnedSounds
         )
 
-        nextState = resolveAttackHit(nextState, attackerSide = 1, dtMs = dtMs)
-        nextState = resolveAttackHit(nextState, attackerSide = 2, dtMs = dtMs)
-        nextState = updateProjectiles(nextState, dtMs)
-        nextState = preventOverlap(nextState)
+        if (nextCine == null) {
+            nextState = resolveAttackHit(nextState, attackerSide = 1, dtMs = dtMs)
+            nextState = resolveAttackHit(nextState, attackerSide = 2, dtMs = dtMs)
+            nextState = updateProjectiles(nextState, dtMs)
+            nextState = preventOverlap(nextState)
+        }
 
         return nextState
     }
@@ -298,7 +399,7 @@ class CombatEngine(
         localInput: PlayerInput
     ): ArenaWorldState {
         val clampedDt = dtMs.coerceIn(1L, 50L)
-        var next = ageEffects(state, clampedDt)
+        var next = ageEffects(state.copy(soundEvents = emptyList()), clampedDt)
         if (next.phase != MatchPhase.FIGHTING) return next
 
         val emptyInput = PlayerInput()
@@ -308,10 +409,14 @@ class CombatEngine(
         val localFighter = if (localSide == 1) next.p1 else next.p2
         val remoteFighter = if (localSide == 1) next.p2 else next.p1
 
+        val wasGrounded = localFighter.y <= 0.001f
         val updatedLocal = updateFighterKinematics(localFighter, if (localSide == 1) p1In else p2In, remoteFighter.x, clampedDt)
+        val spawnedSounds = mutableListOf<SoundEffect>()
+        if (wasGrounded && updatedLocal.y > 0.001f) spawnedSounds += SoundEffect.JUMP
+
         val effects = mutableListOf<SlashEffect>()
         val projs = mutableListOf<Projectile>()
-        val attackedLocal = tryTriggerAttack(updatedLocal, if (localSide == 1) p1In else p2In, effects, projs)
+        val attackedLocal = tryTriggerAttack(updatedLocal, if (localSide == 1) p1In else p2In, effects, projs, spawnedSounds)
 
         var flashMs = next.ultiFlashMs
         var flashColor = next.ultiFlashColor
@@ -326,7 +431,8 @@ class CombatEngine(
             ultiFlashMs = flashMs,
             ultiFlashColor = flashColor,
             slashEffects = next.slashEffects + effects,
-            projectiles = next.projectiles + projs
+            projectiles = next.projectiles + projs,
+            soundEvents = next.soundEvents + spawnedSounds
         )
 
         next = resolveAttackHit(next, attackerSide = localSide, dtMs = clampedDt)
@@ -453,7 +559,8 @@ class CombatEngine(
         f: FighterRuntime,
         input: PlayerInput,
         effects: MutableList<SlashEffect>,
-        projectiles: MutableList<Projectile>
+        projectiles: MutableList<Projectile>,
+        sounds: MutableList<SoundEffect>
     ): FighterRuntime {
         if (f.hitStunMs > 0L || f.vineSnaredMs > 0L || f.isBlocking) return f
         val alreadyAttacking = f.action in setOf(CombatAction.CLASSIC, CombatAction.BASE_ABILITY, CombatAction.ULTI)
@@ -472,6 +579,18 @@ class CombatEngine(
             MoveSlot.CLASSIC -> CombatAction.CLASSIC
             MoveSlot.BASE_ABILITY -> CombatAction.BASE_ABILITY
             MoveSlot.ULTI -> CombatAction.ULTI
+        }
+
+        sounds += when (chosenMove.effectType) {
+            MoveEffectType.BAYONETTA_FIST -> SoundEffect.GLITCH_PORTAL
+            MoveEffectType.VINE_WHIP -> SoundEffect.VINE_ERUPT
+            MoveEffectType.CHOPSTICK_FLURRY -> SoundEffect.CHOPSTICK_FLURRY
+            MoveEffectType.SWEEP_KICK -> SoundEffect.CARNIVAL_SWEEP
+            MoveEffectType.MELEE -> SoundEffect.SWING_WHOOSH
+            MoveEffectType.ULTI_GLITCH_BARRAGE,
+            MoveEffectType.ULTI_VINE_PUNCH,
+            MoveEffectType.ULTI_CHOPSTICKS,
+            MoveEffectType.ULTI_TROPICAL_SLAM -> SoundEffect.ULTI_CINEMATIC
         }
 
         val nextUlti = if (chosenMove.slot == MoveSlot.ULTI) 0 else f.ultiMeter
@@ -564,12 +683,25 @@ class CombatEngine(
                         comboDmg = uAtt.comboDamage
                     )
                 }
+                val colossalPopup = buildDamagePopup(
+                    id = nextId(),
+                    defender = defender,
+                    damage = threeQuartersDmg,
+                    blocked = false,
+                    isUlti = true,
+                    isColossal = true
+                )
                 return state.copy(
                     p1 = if (attackerSide == 1) uAtt else uDef,
                     p2 = if (attackerSide == 2) uAtt else uDef,
                     ultiFlashMs = 360L,
                     ultiFlashColor = Color(0xFFFFC400),
-                    screenShakeMs = 380L,
+                    screenShakeMs = 420L,
+                    impactFlashMs = 110L,
+                    hitStopMs = 120L,
+                    impactX = defender.x,
+                    impactCallout = "COLOSSAL !",
+                    soundEvents = state.soundEvents + SoundEffect.ULTI_IMPACT,
                     sparks = state.sparks + HitSpark(
                         id = nextId(),
                         x = defender.x,
@@ -577,14 +709,7 @@ class CombatEngine(
                         color = Color(0xFFFFC400),
                         isUlti = true
                     ),
-                    popups = state.popups + FloatingPopup(
-                        id = nextId(),
-                        x = defender.x,
-                        y = defender.y + 0.20f,
-                        text = "POING COLOSSAL ! -$threeQuartersDmg",
-                        color = Color(0xFFFFC400),
-                        isCritical = true
-                    ),
+                    popups = state.popups + colossalPopup,
                     training = nextTraining
                 )
             }
@@ -615,13 +740,17 @@ class CombatEngine(
             return state.copy(
                 p1 = if (attackerSide == 1) uAtt else uDef,
                 p2 = if (attackerSide == 2) uAtt else uDef,
+                soundEvents = state.soundEvents + SoundEffect.VINE_ERUPT,
                 popups = state.popups + FloatingPopup(
                     id = nextId(),
                     x = defender.x,
-                    y = defender.y + 0.16f,
-                    text = "PIÉGÉ PAR LES VIGNES !",
+                    y = defender.y + 0.18f * defender.def.stats.heightScale,
+                    text = "PIÉGÉ !",
+                    subLabel = "VIGNES",
                     color = Color(0xFF00E676),
-                    isCritical = true
+                    isCritical = true,
+                    vy = 0.18f,
+                    scaleMultiplier = 1.25f
                 )
             )
         }
@@ -641,7 +770,7 @@ class CombatEngine(
 
         if (!inFront || dy > yTolerance) return state
 
-        val (updatedAttacker, updatedDefender, popup, spark) = applyDamage(
+        val outcome = applyDamage(
             attacker = attacker.copy(hasDealtHitForSeq = true),
             defender = defender,
             rawDamage = move.damage,
@@ -658,17 +787,45 @@ class CombatEngine(
                 training = nextTraining,
                 moveSlot = move.slot,
                 wasAirborne = attacker.y > 0.03f,
-                comboHits = updatedAttacker.comboCount,
-                comboDmg = updatedAttacker.comboDamage
+                comboHits = outcome.attacker.comboCount,
+                comboDmg = outcome.attacker.comboDamage
             )
         }
 
+        val isHeavyOrUlti = move.slot == MoveSlot.ULTI || move.damage >= 115
+        val nextShake = when {
+            move.slot == MoveSlot.ULTI -> 320L
+            move.damage >= 115 -> 160L
+            else -> state.screenShakeMs
+        }
+        val nextImpactFlash = when {
+            move.slot == MoveSlot.ULTI -> 95L
+            move.damage >= 115 -> 55L
+            else -> state.impactFlashMs
+        }
+        val nextHitStop = when {
+            move.slot == MoveSlot.ULTI -> 105L
+            move.damage >= 115 -> 70L
+            else -> 40L
+        }
+        val callout = when {
+            defender.isBlocking -> "GARDE"
+            move.slot == MoveSlot.ULTI -> "ULTIME !"
+            move.damage >= 115 -> "SLASH !"
+            else -> null
+        }
+
         return state.copy(
-            p1 = if (attackerSide == 1) updatedAttacker else updatedDefender,
-            p2 = if (attackerSide == 2) updatedAttacker else updatedDefender,
-            screenShakeMs = if (move.slot == MoveSlot.ULTI) 260L else state.screenShakeMs,
-            sparks = state.sparks + spark,
-            popups = state.popups + popup,
+            p1 = if (attackerSide == 1) outcome.attacker else outcome.defender,
+            p2 = if (attackerSide == 2) outcome.attacker else outcome.defender,
+            screenShakeMs = nextShake,
+            impactFlashMs = nextImpactFlash,
+            hitStopMs = nextHitStop,
+            impactX = defender.x,
+            impactCallout = callout ?: state.impactCallout,
+            soundEvents = state.soundEvents + outcome.sound,
+            sparks = state.sparks + outcome.spark,
+            popups = state.popups + outcome.popup,
             training = nextTraining
         )
     }
@@ -682,6 +839,8 @@ class CombatEngine(
         val newPopups = mutableListOf<FloatingPopup>()
         var nextTraining = state.training
 
+        val newSounds = mutableListOf<SoundEffect>()
+
         for (proj in state.projectiles) {
             val nextX = proj.x + proj.vx * dtSec
             val nextTtl = proj.ttlMs - dtMs
@@ -693,7 +852,7 @@ class CombatEngine(
             val hitY = abs(proj.y - (target.y + 0.09f)) <= 0.13f
 
             if (hitX && hitY) {
-                val (uAtt, uDef, popup, spark) = applyDamage(
+                val outcome = applyDamage(
                     attacker = attacker,
                     defender = target,
                     rawDamage = proj.damage,
@@ -704,23 +863,24 @@ class CombatEngine(
                     hitY = proj.y
                 )
                 if (proj.ownerSide == 1) {
-                    p1 = uAtt
-                    p2 = uDef
+                    p1 = outcome.attacker
+                    p2 = outcome.defender
                     if (state.mode == GameMode.TRAINING) {
                         nextTraining = updateTrainingChallenge(
                             training = nextTraining,
                             moveSlot = MoveSlot.BASE_ABILITY,
                             wasAirborne = false,
-                            comboHits = uAtt.comboCount,
-                            comboDmg = uAtt.comboDamage
+                            comboHits = outcome.attacker.comboCount,
+                            comboDmg = outcome.attacker.comboDamage
                         )
                     }
                 } else {
-                    p2 = uAtt
-                    p1 = uDef
+                    p2 = outcome.attacker
+                    p1 = outcome.defender
                 }
-                newSparks += spark
-                newPopups += popup
+                newSparks += outcome.spark
+                newPopups += outcome.popup
+                newSounds += outcome.sound
             } else {
                 remaining += proj.copy(x = nextX, ttlMs = nextTtl)
             }
@@ -732,6 +892,7 @@ class CombatEngine(
             projectiles = remaining,
             sparks = state.sparks + newSparks,
             popups = state.popups + newPopups,
+            soundEvents = state.soundEvents + newSounds,
             training = nextTraining
         )
     }
@@ -740,7 +901,8 @@ class CombatEngine(
         val attacker: FighterRuntime,
         val defender: FighterRuntime,
         val popup: FloatingPopup,
-        val spark: HitSpark
+        val spark: HitSpark,
+        val sound: SoundEffect
     )
 
     private fun applyDamage(
@@ -777,16 +939,19 @@ class CombatEngine(
         val nextUltiAttacker = (attacker.ultiMeter + if (blocked) ultiGain / 2 else ultiGain).coerceIn(0, 100)
         val nextUltiDefender = (defender.ultiMeter + 10).coerceIn(0, 100)
 
-        val popupText = when {
-            blocked && isUlti -> "PERCÉE -$finalDmg"
-            blocked -> "BLOQUÉ -$finalDmg"
-            isUlti -> "ULTIME ! -$finalDmg"
-            else -> "-$finalDmg"
-        }
-        val popupColor = when {
-            blocked -> Color(0xFF448AFF)
-            isUlti -> Color(0xFFFFC400)
-            else -> Color(0xFFFF5252)
+        val popup = buildDamagePopup(
+            id = nextId(),
+            defender = defender,
+            damage = finalDmg,
+            blocked = blocked,
+            isUlti = isUlti
+        )
+
+        val hitSound = when {
+            blocked && !isUlti -> SoundEffect.BLOCK_CLANG
+            isUlti || finalDmg >= 220 -> SoundEffect.ULTI_IMPACT
+            finalDmg >= 120 -> SoundEffect.HEAVY_HIT
+            else -> SoundEffect.CLASSIC_HIT
         }
 
         return HitOutcome(
@@ -804,21 +969,40 @@ class CombatEngine(
                 hitStunMs = nextHitStun,
                 action = if (nextHitStun > 0L) CombatAction.HIT_STUN else defender.action
             ),
-            popup = FloatingPopup(
-                id = nextId(),
-                x = hitX,
-                y = hitY + 0.05f,
-                text = popupText,
-                color = popupColor,
-                isCritical = isUlti
-            ),
+            popup = popup,
             spark = HitSpark(
                 id = nextId(),
                 x = hitX,
                 y = hitY,
-                color = if (blocked) Color(0xFF448AFF) else attacker.def.accentColor,
+                color = if (blocked) Color(0xFF40C4FF) else popup.color,
                 isUlti = isUlti
-            )
+            ),
+            sound = hitSound
+        )
+    }
+
+    private fun buildDamagePopup(
+        id: Long,
+        defender: FighterRuntime,
+        damage: Int,
+        blocked: Boolean,
+        isUlti: Boolean,
+        isColossal: Boolean = false
+    ): FloatingPopup {
+        val style = classifyDamageVisual(damage = damage, blocked = blocked, isUlti = isUlti, isColossal = isColossal)
+        val spreadSlot = ((id % 3L) - 1L).toFloat() // -1, 0, +1 so rapid hits don't stack directly
+        return FloatingPopup(
+            id = id,
+            x = (defender.x + spreadSlot * 0.024f).coerceIn(0.08f, 0.92f),
+            y = defender.y + 0.16f * defender.def.stats.heightScale + 0.03f,
+            text = "-$damage",
+            color = style.color,
+            isCritical = style.isCritical,
+            vx = spreadSlot * 0.045f,
+            vy = if (style.isCritical) 0.28f else 0.22f,
+            scaleMultiplier = style.scale,
+            subLabel = style.subLabel,
+            maxAgeMs = if (isUlti || damage >= 220) 1100L else if (damage >= 120) 940L else 840L
         )
     }
 
@@ -888,9 +1072,15 @@ class CombatEngine(
     }
 
     private fun ageEffects(state: ArenaWorldState, dtMs: Long): ArenaWorldState {
+        val dtSec = dtMs / 1000f
+        val nextImpactFlash = (state.impactFlashMs - dtMs).coerceAtLeast(0L)
+        val nextHitStop = (state.hitStopMs - dtMs).coerceAtLeast(0L)
         return state.copy(
             ultiFlashMs = (state.ultiFlashMs - dtMs).coerceAtLeast(0L),
             screenShakeMs = (state.screenShakeMs - dtMs).coerceAtLeast(0L),
+            impactFlashMs = nextImpactFlash,
+            hitStopMs = nextHitStop,
+            impactCallout = if (nextHitStop > 0L || nextImpactFlash > 0L) state.impactCallout else null,
             sparks = state.sparks.mapNotNull {
                 val age = it.ageMs + dtMs
                 if (age >= it.maxAgeMs) null else it.copy(ageMs = age)
@@ -901,7 +1091,17 @@ class CombatEngine(
             },
             popups = state.popups.mapNotNull {
                 val age = it.ageMs + dtMs
-                if (age >= it.maxAgeMs) null else it.copy(ageMs = age, y = it.y + 0.08f * (dtMs / 1000f))
+                if (age >= it.maxAgeMs) {
+                    null
+                } else {
+                    val p = age.toFloat() / it.maxAgeMs.toFloat()
+                    val decel = (1f - p * 0.72f).coerceAtLeast(0.15f)
+                    it.copy(
+                        ageMs = age,
+                        x = (it.x + it.vx * dtSec).coerceIn(0.06f, 0.94f),
+                        y = it.y + it.vy * decel * dtSec
+                    )
+                }
             }
         )
     }
@@ -957,7 +1157,69 @@ class CombatEngine(
 
     private fun nextId(): Long = nextEntityId++
 
+    data class DamagePopupVisual(
+        val color: Color,
+        val scale: Float,
+        val isCritical: Boolean,
+        val subLabel: String?
+    )
+
     companion object {
         private const val GRAVITY = 4.6f
+
+        /**
+         * Adapte la couleur, l'échelle et le badge des dégâts flottants selon la puissance du coup.
+         */
+        fun classifyDamageVisual(
+            damage: Int,
+            blocked: Boolean = false,
+            isUlti: Boolean = false,
+            isColossal: Boolean = false
+        ): DamagePopupVisual {
+            return when {
+                blocked && isUlti -> DamagePopupVisual(
+                    color = Color(0xFFFFAB40),
+                    scale = 1.24f,
+                    isCritical = true,
+                    subLabel = "PERCÉE"
+                )
+                blocked -> DamagePopupVisual(
+                    color = Color(0xFF40C4FF),
+                    scale = 0.92f,
+                    isCritical = false,
+                    subLabel = "BLOQUÉ"
+                )
+                isColossal -> DamagePopupVisual(
+                    color = Color(0xFFFFC400),
+                    scale = 1.72f,
+                    isCritical = true,
+                    subLabel = "COLOSSAL !"
+                )
+                isUlti || damage >= 220 -> DamagePopupVisual(
+                    color = Color(0xFFFF1744),
+                    scale = 1.62f,
+                    isCritical = true,
+                    subLabel = "ULTIME !"
+                )
+                damage >= 120 -> DamagePopupVisual(
+                    color = Color(0xFFFF6D00),
+                    scale = 1.38f,
+                    isCritical = true,
+                    subLabel = "PUISSANT !"
+                )
+                damage >= 75 -> DamagePopupVisual(
+                    color = Color(0xFFFFD600),
+                    scale = 1.18f,
+                    isCritical = false,
+                    subLabel = null
+                )
+                else -> DamagePopupVisual(
+                    color = Color(0xFFF5FAFF),
+                    scale = 1.0f,
+                    isCritical = false,
+                    subLabel = null
+                )
+            }
+        }
     }
 }

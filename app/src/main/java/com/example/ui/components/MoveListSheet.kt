@@ -133,53 +133,6 @@ fun MoveListSheet(
                 }
             }
 
-            // Combo list
-            Text(
-                text = "ENCHAÎNEMENTS RECOMMANDÉS",
-                style = MaterialTheme.typography.labelLarge,
-                color = Color.White
-            )
-            fighter.comboChallenges.forEach { combo ->
-                Surface(
-                    color = ObsidianBg,
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, ObsidianOutline),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = combo.title,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White
-                        )
-                        Text(
-                            text = combo.subtitle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = TextSecondary
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            combo.steps.forEachIndexed { idx, step ->
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(fighter.primaryColor.copy(alpha = 0.22f))
-                                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                                ) {
-                                    Text(
-                                        text = "${idx + 1}. ${step.label}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             Spacer(modifier = Modifier.height(18.dp))
         }
     }

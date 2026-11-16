@@ -211,3 +211,47 @@ test("Host can create room, Bob can join, both select fighters, fight, and finis
     })
   );
 });
+
+test("Signed-in user can create, read, and delete own playtest feedback, but cannot spoof author or update", async () => {
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+
+  const validFeedback = {
+    authorId: ALICE_UID,
+    authorName: "Alice",
+    modeTested: "IRL",
+    category: "Graphismes",
+    fighterId: "jardin",
+    rating: 5,
+    comment: "Les cinématiques sont incroyables en horizontal !",
+    createdAt: nowTs(),
+  };
+
+  await assertFails(unauthDb.collection("playtest_feedbacks").doc("fb_1").get());
+  await assertSucceeds(aliceDb.collection("playtest_feedbacks").doc("fb_1").set(validFeedback));
+
+  // Bob can read community feedback
+  await assertSucceeds(bobDb.collection("playtest_feedbacks").get());
+
+  // Spoofed authorId rejected
+  await assertFails(
+    bobDb.collection("playtest_feedbacks").doc("fb_2").set({
+      ...validFeedback,
+      authorId: ALICE_UID,
+    })
+  );
+
+  // Invalid rating rejected
+  await assertFails(
+    aliceDb.collection("playtest_feedbacks").doc("fb_3").set({
+      ...validFeedback,
+      rating: 10,
+    })
+  );
+
+  // Updates rejected (immutable), Bob cannot delete Alice's feedback, Alice can
+  await assertFails(aliceDb.collection("playtest_feedbacks").doc("fb_1").update({ rating: 1 }));
+  await assertFails(bobDb.collection("playtest_feedbacks").doc("fb_1").delete());
+  await assertSucceeds(aliceDb.collection("playtest_feedbacks").doc("fb_1").delete());
+});
