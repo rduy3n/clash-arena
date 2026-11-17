@@ -38,7 +38,15 @@ enum class SoundEffect {
     ULTI_IMPACT,
     ROUND_START,
     KO_BOOM,
-    VICTORY_FANFARE
+    VICTORY_FANFARE,
+    COMBO_TRIGGER,
+    GLITCH_BLINK,
+    LASER_SHARD,
+    EARTH_SLAM,
+    DRAGON_DASH,
+    PROJECTILE_WHOOSH,
+    COCONUT_BOOM,
+    SAMBA_METEOR
 }
 
 interface SoundPlayer {
@@ -95,7 +103,7 @@ class AndroidSoundEffectsManager(context: Context) : SoundPlayer {
         if (soundPool != null) {
             scope.launch {
                 runCatching {
-                    val sfxDir = File(appContext.cacheDir, "clash_sfx_v2").apply { mkdirs() }
+                    val sfxDir = File(appContext.cacheDir, "clash_sfx_v3").apply { mkdirs() }
                     SoundEffect.entries.forEach { effect ->
                         val wavFile = File(sfxDir, "${effect.name.lowercase()}.wav")
                         if (!wavFile.exists() || wavFile.length() < 64L) {
@@ -136,6 +144,14 @@ class AndroidSoundEffectsManager(context: Context) : SoundPlayer {
             SoundEffect.KO_BOOM -> 0.98f
             SoundEffect.ROUND_START,
             SoundEffect.VICTORY_FANFARE -> 0.88f
+            SoundEffect.COMBO_TRIGGER -> 0.72f
+            SoundEffect.GLITCH_BLINK,
+            SoundEffect.LASER_SHARD,
+            SoundEffect.PROJECTILE_WHOOSH -> 0.84f
+            SoundEffect.EARTH_SLAM,
+            SoundEffect.DRAGON_DASH,
+            SoundEffect.COCONUT_BOOM,
+            SoundEffect.SAMBA_METEOR -> 0.92f
         }
         val safeRate = pitchVariation.coerceIn(0.84f, 1.22f)
         runCatching {
@@ -165,6 +181,14 @@ class AndroidSoundEffectsManager(context: Context) : SoundPlayer {
             SoundEffect.ROUND_START -> synthRoundStart()
             SoundEffect.KO_BOOM -> synthKoBoom()
             SoundEffect.VICTORY_FANFARE -> synthVictoryFanfare()
+            SoundEffect.COMBO_TRIGGER -> synthComboTrigger()
+            SoundEffect.GLITCH_BLINK -> synthGlitchBlink()
+            SoundEffect.LASER_SHARD -> synthLaserShard()
+            SoundEffect.EARTH_SLAM -> synthEarthSlam()
+            SoundEffect.DRAGON_DASH -> synthDragonDash()
+            SoundEffect.PROJECTILE_WHOOSH -> synthProjectileWhoosh()
+            SoundEffect.COCONUT_BOOM -> synthCoconutBoom()
+            SoundEffect.SAMBA_METEOR -> synthSambaMeteor()
         }
         return normalizeToPcm16(raw)
     }
@@ -528,6 +552,175 @@ class AndroidSoundEffectsManager(context: Context) : SoundPlayer {
             tanh(acc * 0.92f)
         }
         return applyRoomReverb(dry, mix = 0.30f)
+    }
+
+    private fun synthComboTrigger(): FloatArray {
+        val n = (SAMPLE_RATE * 0.16f).toInt()
+        val notes = floatArrayOf(659.25f, 987.77f, 1318.51f)
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            var acc = 0f
+            notes.forEachIndexed { idx, freq ->
+                val dt = t - idx * 0.032f
+                if (dt >= 0f) {
+                    val env = exp(-dt * 26f) * smoothAttack(dt, 0.002f)
+                    acc += (sin(TWO_PI * freq * dt) * 0.65f + sin(TWO_PI * freq * 2f * dt) * 0.25f) * env
+                }
+            }
+            tanh(acc * 1.15f)
+        }
+        return applyRoomReverb(dry, mix = 0.18f)
+    }
+
+    private fun synthGlitchBlink(): FloatArray {
+        val n = (SAMPLE_RATE * 0.24f).toInt()
+        val rng = Rng(404u)
+        var carrierPhase = 0f
+        var subPhase = 0f
+        var lp = 0f
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            val p = i / n.toFloat()
+            val sweep = 1480f * exp(-t * 14f) + 260f + sin(t * 95f) * 140f
+            carrierPhase += TWO_PI * sweep / SAMPLE_RATE
+            subPhase += TWO_PI * (140f * exp(-t * 12f) + 48f) / SAMPLE_RATE
+            val noise = rng.nextFloat()
+            lp += 0.42f * (noise - lp)
+            val snap = (noise - lp) * exp(-t * 36f) * 0.52f
+            val tone = (sin(carrierPhase) * 0.6f + sin(carrierPhase * 1.5f) * 0.25f) * (1f - p * 0.65f)
+            val sub = sin(subPhase) * exp(-t * 16f) * 0.55f
+            tanh((tone + sub + snap) * 1.3f) * smoothAttack(t, 0.002f)
+        }
+        return applyRoomReverb(dry, mix = 0.22f)
+    }
+
+    private fun synthLaserShard(): FloatArray {
+        val n = (SAMPLE_RATE * 0.20f).toInt()
+        var p1 = 0f
+        var p2 = 0f
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            val f1 = 1750f * exp(-t * 19f) + 290f
+            p1 += TWO_PI * f1 / SAMPLE_RATE
+            val dt2 = t - 0.06f
+            var s2 = 0f
+            if (dt2 >= 0f) {
+                val f2 = 1980f * exp(-dt2 * 20f) + 330f
+                p2 += TWO_PI * f2 / SAMPLE_RATE
+                s2 = (sin(p2) * 0.65f + sin(p2 * 2f) * 0.25f) * exp(-dt2 * 18f) * smoothAttack(dt2, 0.002f)
+            }
+            val s1 = (sin(p1) * 0.65f + sin(p1 * 2f) * 0.25f) * exp(-t * 19f) * smoothAttack(t, 0.002f)
+            tanh((s1 + s2) * 1.3f)
+        }
+        return applyRoomReverb(dry, mix = 0.20f)
+    }
+
+    private fun synthEarthSlam(): FloatArray {
+        val n = (SAMPLE_RATE * 0.36f).toInt()
+        val rng = Rng(626u)
+        var subPhase = 0f
+        var lp = 0f
+        var prev = 0f
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            val f = 135f * exp(-t * 12f) + 32f
+            subPhase += TWO_PI * f / SAMPLE_RATE
+            val noise = rng.nextFloat()
+            val crack = noise - prev
+            prev = noise
+            lp += 0.16f * (noise - lp)
+            val sub = sin(subPhase) * exp(-t * 7.5f) * 1.0f
+            val rumble = lp * exp(-t * 9.2f) * 0.95f
+            val rockCrack = crack * exp(-t * 85f) * 0.72f
+            tanh((sub + rumble + rockCrack) * 1.48f) * smoothAttack(t, 0.002f)
+        }
+        return applyRoomReverb(dry, mix = 0.26f)
+    }
+
+    private fun synthDragonDash(): FloatArray {
+        val n = (SAMPLE_RATE * 0.28f).toInt()
+        val rng = Rng(881u)
+        var lp1 = 0f
+        var lp2 = 0f
+        var chimePhase = 0f
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            val p = i / n.toFloat()
+            val noise = rng.nextFloat()
+            lp1 += (0.12f + 0.36f * sin(p * PI_F)) * (noise - lp1)
+            lp2 += 0.04f * (noise - lp2)
+            val fireWhoosh = (lp1 - lp2) * 2.1f * sin(p * PI_F).pow(0.7f)
+            val freq = 340f + 560f * (1f - p)
+            chimePhase += TWO_PI * freq / SAMPLE_RATE
+            val kiai = (sin(chimePhase) * 0.45f + sin(chimePhase * 1.5f) * 0.25f) * exp(-t * 11f)
+            tanh((fireWhoosh + kiai) * 1.25f) * smoothAttack(t, 0.003f)
+        }
+        return applyRoomReverb(dry, mix = 0.22f)
+    }
+
+    private fun synthProjectileWhoosh(): FloatArray {
+        val n = (SAMPLE_RATE * 0.19f).toInt()
+        val rng = Rng(333u)
+        var lp1 = 0f
+        var lp2 = 0f
+        var spinPhase = 0f
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            val p = i / n.toFloat()
+            val noise = rng.nextFloat()
+            lp1 += 0.35f * (noise - lp1)
+            lp2 += 0.09f * (noise - lp2)
+            spinPhase += TWO_PI * (820f + 420f * sin(p * PI_F)) / SAMPLE_RATE
+            val flutter = 0.55f + 0.45f * sin(TWO_PI * 28f * t)
+            val blade = (lp1 - lp2) * 2.0f * flutter + sin(spinPhase) * exp(-t * 16f) * 0.34f
+            tanh(blade * sin(p * PI_F).pow(0.55f) * 1.3f)
+        }
+        return applyRoomReverb(dry, mix = 0.16f)
+    }
+
+    private fun synthCoconutBoom(): FloatArray {
+        val n = (SAMPLE_RATE * 0.32f).toInt()
+        val rng = Rng(909u)
+        var subPhase = 0f
+        var lp = 0f
+        var prev = 0f
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            val f = 220f * exp(-t * 15f) + 42f
+            subPhase += TWO_PI * f / SAMPLE_RATE
+            val noise = rng.nextFloat()
+            val snap = noise - prev
+            prev = noise
+            lp += 0.24f * (noise - lp)
+            // Hollow coconut wood pop + tropical boom
+            val woodPop = sin(TWO_PI * 460f * t) * exp(-t * 42f) * 0.65f
+            val boom = sin(subPhase) * exp(-t * 10f) * 0.92f
+            val burst = lp * exp(-t * 14f) * 0.82f + snap * exp(-t * 95f) * 0.5f
+            tanh((woodPop + boom + burst) * 1.45f) * smoothAttack(t, 0.0015f)
+        }
+        return applyRoomReverb(dry, mix = 0.24f)
+    }
+
+    private fun synthSambaMeteor(): FloatArray {
+        val n = (SAMPLE_RATE * 0.34f).toInt()
+        val rng = Rng(707u)
+        var surdoPhase = 0f
+        var lp = 0f
+        val dry = FloatArray(n) { i ->
+            val t = i / SAMPLE_RATE.toFloat()
+            val f = 180f * exp(-t * 12f) + 38f
+            surdoPhase += TWO_PI * f / SAMPLE_RATE
+            val noise = rng.nextFloat()
+            lp += 0.22f * (noise - lp)
+            val drop = sin(surdoPhase) * exp(-t * 8.5f) * 0.96f
+            val accent = if (t >= 0.09f) {
+                val dt = t - 0.09f
+                sin(TWO_PI * (96f + 60f * exp(-dt * 18f)) * dt) * exp(-dt * 11f) * 0.68f
+            } else 0f
+            val air = lp * exp(-t * 13f) * 0.72f
+            tanh((drop + accent + air) * 1.42f) * smoothAttack(t, 0.002f)
+        }
+        return applyRoomReverb(dry, mix = 0.24f)
     }
 
     private fun applyRoomReverb(dry: FloatArray, mix: Float): FloatArray {

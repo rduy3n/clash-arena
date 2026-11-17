@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -67,11 +68,20 @@ import com.example.game.data.GameMode
 import com.example.game.data.TrainingOpponentMode
 import com.example.game.engine.ArenaWorldState
 import com.example.game.engine.FighterRuntime
+import com.example.game.engine.FinishType
 import com.example.game.engine.MatchPhase
 import com.example.game.engine.TrainingHudState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
+import com.example.ui.components.AdminPanelDialog
 import com.example.ui.components.ArcadeControls
 import com.example.ui.components.ArenaCanvas
 import com.example.ui.components.FighterAvatar
+import com.example.ui.components.IntroCinematicOverlay
 import com.example.ui.components.MoveListSheet
 import com.example.ui.components.UltiCinematicOverlay
 import com.example.ui.components.VictoryCinematicOverlay
@@ -90,16 +100,22 @@ import com.example.ui.viewmodel.BattleViewModel
 @Composable
 fun BattleScreen(
     viewModel: BattleViewModel,
+    isAdmin: Boolean = false,
+    verifiedEmail: String = "",
     onRematchLocal: () -> Unit,
+    onOnlineRematchToSelect: () -> Unit = {},
+    onTournamentContinue: (winnerSide: Int, p1Score: Int, p2Score: Int) -> Unit = { _, _, _ -> },
     onExitBattle: () -> Unit
 ) {
     val worldState by viewModel.world.collectAsStateWithLifecycle()
     val timeMs by viewModel.timeMs.collectAsStateWithLifecycle()
     val localSide by viewModel.localSide.collectAsStateWithLifecycle()
     val onlineError by viewModel.onlineError.collectAsStateWithLifecycle()
+    val adminModifiers by viewModel.adminModifiers.collectAsStateWithLifecycle()
 
     var showMoveListFor by remember { mutableStateOf<FighterDefinition?>(null) }
     var showTrainingSettings by remember { mutableStateOf(false) }
+    var showAdminPanel by remember { mutableStateOf(false) }
 
     val soundPlayer = LocalSoundPlayer.current
     val isMuted by soundPlayer.isMuted.collectAsStateWithLifecycle()
@@ -142,7 +158,12 @@ fun BattleScreen(
                 world = world,
                 localSide = localSide,
                 isMuted = isMuted,
+                isAdmin = isAdmin,
                 onToggleMute = { soundPlayer.toggleMute() },
+                onOpenAdmin = {
+                    soundPlayer.play(SoundEffect.UI_CLICK)
+                    showAdminPanel = true
+                },
                 onExit = {
                     soundPlayer.play(SoundEffect.UI_CLICK)
                     onExitBattle()
@@ -170,18 +191,24 @@ fun BattleScreen(
             }
         }
 
-        // 3. Center Slanted Guilty Gear Round / KO Banner
-        if (world.bannerText.isNotEmpty() && world.phase != MatchPhase.MATCH_OVER && world.ultiCinematic == null) {
+        // 3. Center Slanted Guilty Gear Round Banner with Portrait & Score
+        if (world.bannerText.isNotEmpty() &&
+            world.phase != MatchPhase.INTRO_CINEMATIC &&
+            world.phase != MatchPhase.KO_SLOWMO &&
+            world.phase != MatchPhase.MATCH_OVER &&
+            world.ultiCinematic == null
+        ) {
             val bannerShape = remember { skewedParallelogramShape(skewFraction = 0.08f, leanRight = true) }
+            val roundWinnerDef = if (world.p1.hp >= world.p2.hp) world.p1.def else world.p2.def
             Surface(
                 color = Color(0xEE080B14),
                 shape = bannerShape,
                 border = BorderStroke(2.5.dp, UltiGold),
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .graphicsLayer { rotationZ = -2.8f }
+                    .graphicsLayer { rotationZ = -2.5f }
             ) {
-                Box(
+                Column(
                     modifier = Modifier
                         .background(
                             Brush.horizontalGradient(
@@ -192,22 +219,48 @@ fun BattleScreen(
                                 )
                             )
                         )
-                        .padding(horizontal = 36.dp, vertical = 14.dp)
+                        .padding(horizontal = 32.dp, vertical = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
                         text = world.bannerText,
-                        style = MaterialTheme.typography.displayLarge.copy(
+                        style = MaterialTheme.typography.displayMedium.copy(
                             fontStyle = FontStyle.Italic,
                             fontWeight = FontWeight.Black
                         ),
                         color = UltiGold
                     )
+                    if (world.phase == MatchPhase.ROUND_END) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            FighterAvatar(fighter = roundWinnerDef, size = 48.dp)
+                            Column {
+                                Text(
+                                    text = "POINT : ${roundWinnerDef.name.uppercase()}",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "SCORE GLOBAL : ${world.p1RoundsWon} - ${world.p2RoundsWon}",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = ElectricCyan
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // 6. Translucent Corner Arcade Touch Controls (hidden during Ulti / Match Over cinematics)
-        if (world.ultiCinematic == null && world.phase != MatchPhase.MATCH_OVER) {
+        // 4. Translucent Corner Arcade Touch Controls (hidden during Intro, Ulti, KO Slow-Mo, or Match Over)
+        if (world.ultiCinematic == null &&
+            world.phase != MatchPhase.INTRO_CINEMATIC &&
+            world.phase != MatchPhase.KO_SLOWMO &&
+            world.phase != MatchPhase.MATCH_OVER
+        ) {
             ArcadeControls(
                 fighter = controlledFighter.def,
                 runtime = controlledFighter,
@@ -222,7 +275,17 @@ fun BattleScreen(
             )
         }
 
-        // 7. 2-Second Slow-Motion Ulti Anime Cut-In Cinematic!
+        // 5. Fast 2.5s Personalized Intro Cinematic before Round 1
+        if (world.phase == MatchPhase.INTRO_CINEMATIC) {
+            IntroCinematicOverlay(
+                world = world,
+                timeMs = timeMs,
+                onSkip = { viewModel.skipIntro() },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 6. 2-Second Slow-Motion Ulti Anime Cut-In Cinematic!
         world.ultiCinematic?.let { cine ->
             UltiCinematicOverlay(
                 cinematic = cine,
@@ -231,15 +294,75 @@ fun BattleScreen(
             )
         }
 
-        // 8. Custom Animated Victory Cinematic per Character!
+        // 6.5. Dramatic K.O. Slow-Motion Final Blow Transition before Victory Cinematic!
+        if (world.phase == MatchPhase.KO_SLOWMO) {
+            KoSlowMoOverlay(
+                world = world,
+                timeMs = timeMs,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 7. Ultra-Stylized Animated Victory Cinematic per Character!
         if (world.phase == MatchPhase.MATCH_OVER) {
             VictoryCinematicOverlay(
                 world = world,
                 localSide = localSide,
                 onRematchLocal = onRematchLocal,
+                onOnlineRematchToSelect = onOnlineRematchToSelect,
+                onTournamentContinue = {
+                    onTournamentContinue(world.winnerSide, world.p1RoundsWon, world.p2RoundsWon)
+                },
                 onExitBattle = onExitBattle,
                 modifier = Modifier.fillMaxSize()
             )
+        }
+
+        // 8. Verified In-Battle Admin Panel Modal
+        if (showAdminPanel && isAdmin) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.80f)),
+                contentAlignment = Alignment.Center
+            ) {
+                AdminPanelDialog(
+                    verifiedEmail = verifiedEmail,
+                    isInBattle = true,
+                    modifiers = adminModifiers,
+                    canFinishMatchLocally = (world.mode == GameMode.VS_BOT || world.mode == GameMode.TOURNAMENT),
+                    onUpdateModifiers = { viewModel.adminSetModifiers(it) },
+                    onHealP1 = {
+                        viewModel.adminHealFighter(1)
+                        showAdminPanel = false
+                    },
+                    onHealP2 = {
+                        viewModel.adminHealFighter(2)
+                        showAdminPanel = false
+                    },
+                    onInstantFullUltiP1 = {
+                        viewModel.adminFullUlti(1)
+                        showAdminPanel = false
+                    },
+                    onInstantFullUltiP2 = {
+                        viewModel.adminFullUlti(2)
+                        showAdminPanel = false
+                    },
+                    onInstantKoP2 = {
+                        viewModel.adminInstantKoP2()
+                        showAdminPanel = false
+                    },
+                    onWinMatchP1 = {
+                        viewModel.adminWinMatchP1()
+                        showAdminPanel = false
+                    },
+                    onResetTimer = {
+                        viewModel.adminResetTimer()
+                        showAdminPanel = false
+                    },
+                    onDismiss = { showAdminPanel = false }
+                )
+            }
         }
 
         // 9. Online Disconnect Error Overlay
@@ -292,6 +415,126 @@ fun BattleScreen(
     }
 }
 
+@Composable
+private fun KoSlowMoOverlay(
+    world: ArenaWorldState,
+    timeMs: Long,
+    modifier: Modifier = Modifier
+) {
+    val total = world.koSlowMoTotalMs.coerceAtLeast(1L).toFloat()
+    val inFreeze = world.koFreezeRemainingMs > 0L
+    val freezeFrac = (world.koFreezeRemainingMs.toFloat() / world.koFreezeTotalMs.coerceAtLeast(1L)).coerceIn(0f, 1f)
+    val progress = if (inFreeze) 0f else (1f - (world.phaseTimerMs / total)).coerceIn(0f, 1f)
+    val slamScale = when {
+        inFreeze -> 1.46f - (1f - freezeFrac) * 0.08f
+        progress < 0.20f -> 1.38f - (progress / 0.20f) * 0.38f
+        else -> 1.0f
+    }
+    val winnerDef = (if (world.winnerSide == 2) world.p2 else world.p1).def
+    val accentColor = when (world.finishType) {
+        FinishType.PERFECT -> UltiGold
+        FinishType.ULTI_FINISH -> ElectricCyan
+        FinishType.KO -> CrimsonHp
+        FinishType.TIME_UP -> FlameOrange
+    }
+    val bannerShape = remember { skewedParallelogramShape(skewFraction = 0.08f, leanRight = true) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .then(
+                if (inFreeze) {
+                    Modifier.border((4 + (freezeFrac * 4).toInt()).dp, Color.White.copy(alpha = 0.85f))
+                } else {
+                    Modifier
+                }
+            )
+            .testTag("ko_slowmo_overlay")
+    ) {
+        // Dramatic radial impact lines focused on KO location
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val center = Offset(world.impactX.coerceIn(0.15f, 0.85f) * w, h * 0.56f)
+            val maxR = hypot(w, h)
+            if (inFreeze && freezeFrac > 0.45f) {
+                drawRect(color = Color.White.copy(alpha = (freezeFrac - 0.45f) * 0.55f))
+            }
+            for (i in 0 until 28) {
+                val angle = (i / 28f) * (2f * PI.toFloat()) + (if (inFreeze) 0f else timeMs * 0.0022f)
+                val inner = h * (0.18f + (i % 3) * 0.06f)
+                drawLine(
+                    color = (if (i % 2 == 0) accentColor else Color.White).copy(alpha = if (inFreeze) 0.52f else 0.34f),
+                    start = Offset(center.x + cos(angle) * inner, center.y + sin(angle) * inner),
+                    end = Offset(center.x + cos(angle) * maxR, center.y + sin(angle) * maxR),
+                    strokeWidth = if (i % 3 == 0) 7f else 2.8f,
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        // Top & Bottom cinema letterbox bars
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (inFreeze) 32.dp else 26.dp)
+                .align(Alignment.TopCenter)
+                .background(Color.Black.copy(alpha = 0.94f))
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (inFreeze) 32.dp else 26.dp)
+                .align(Alignment.BottomCenter)
+                .background(Color.Black.copy(alpha = 0.94f))
+        )
+
+        // Center-High Slanted Finish Callout
+        Surface(
+            color = Color(0xF0070A12),
+            shape = bannerShape,
+            border = BorderStroke(2.8.dp, accentColor),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .graphicsLayer {
+                    scaleX = slamScale
+                    scaleY = slamScale
+                    rotationZ = -3f
+                }
+        ) {
+            Column(
+                modifier = Modifier
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(
+                                accentColor.copy(alpha = 0.25f),
+                                Color(0xFF0A0E1B),
+                                accentColor.copy(alpha = 0.25f)
+                            )
+                        )
+                    )
+                    .padding(horizontal = 34.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = world.finishType.label,
+                    style = MaterialTheme.typography.displayMedium.copy(
+                        fontStyle = FontStyle.Italic,
+                        fontWeight = FontWeight.Black
+                    ),
+                    color = accentColor
+                )
+                Text(
+                    text = "VAINQUEUR : ${winnerDef.name.uppercase()}",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
 private fun skewedParallelogramShape(skewFraction: Float = 0.05f, leanRight: Boolean = true): Shape =
     GenericShape { size, _ ->
         val skew = (size.width * skewFraction).coerceAtMost(size.height * 0.9f)
@@ -314,7 +557,9 @@ private fun CombatHudHeader(
     world: ArenaWorldState,
     localSide: Int,
     isMuted: Boolean,
+    isAdmin: Boolean,
     onToggleMute: () -> Unit,
+    onOpenAdmin: () -> Unit,
     onExit: () -> Unit
 ) {
     val timerShape = remember { skewedParallelogramShape(skewFraction = 0.11f, leanRight = true) }
@@ -348,49 +593,66 @@ private fun CombatHudHeader(
                 modifier = Modifier.weight(1f)
             )
 
-            Surface(
-                color = Color(0xF0080B14),
-                shape = timerShape,
-                border = BorderStroke(1.8.dp, UltiGold.copy(alpha = 0.85f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(
+                    color = Color(0xF0080B14),
+                    shape = timerShape,
+                    border = BorderStroke(1.8.dp, UltiGold.copy(alpha = 0.85f))
                 ) {
-                    Text(
-                        text = if (world.mode == GameMode.TRAINING) "∞" else "${world.roundTimeRemainingSec}",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontStyle = FontStyle.Italic,
-                            fontWeight = FontWeight.Black
-                        ),
-                        color = if (world.mode == GameMode.TRAINING) EmeraldHp else UltiGold
-                    )
-                    IconButton(
-                        onClick = onToggleMute,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .testTag("battle_sound_toggle_button")
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(
-                            imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = if (isMuted) "Activer le son" else "Couper le son",
-                            tint = if (isMuted) CrimsonHp else ElectricCyan,
-                            modifier = Modifier.size(16.dp)
+                        Text(
+                            text = if (world.mode == GameMode.TRAINING) "∞" else "${world.roundTimeRemainingSec}",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontStyle = FontStyle.Italic,
+                                fontWeight = FontWeight.Black
+                            ),
+                            color = if (world.mode == GameMode.TRAINING) EmeraldHp else UltiGold
                         )
-                    }
-                    IconButton(
-                        onClick = onExit,
-                        modifier = Modifier
-                            .size(28.dp)
-                            .testTag("battle_exit_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
-                            contentDescription = "Quitter le combat",
-                            tint = TextSecondary,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        if (isAdmin) {
+                            IconButton(
+                                onClick = onOpenAdmin,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .testTag("battle_admin_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AdminPanelSettings,
+                                    contentDescription = "Panel Admin",
+                                    tint = UltiGold,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = onToggleMute,
+                            modifier = Modifier
+                                .size(30.dp)
+                                .testTag("battle_sound_toggle_button")
+                        ) {
+                            Icon(
+                                imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = if (isMuted) "Activer le son" else "Couper le son",
+                                tint = if (isMuted) CrimsonHp else ElectricCyan,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = onExit,
+                            modifier = Modifier
+                                .size(30.dp)
+                                .testTag("battle_exit_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                                contentDescription = "Quitter le combat",
+                                tint = TextSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -464,7 +726,6 @@ private fun FighterHealthAndUlti(
             }
         }
 
-        // Slanted Guilty Gear Strive Parallelogram HP Bar + Crimson Damage Trail + Segment Notches
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -488,7 +749,6 @@ private fun FighterHealthAndUlti(
                     .align(fillAlignment)
                     .background(hpBrush)
             )
-            // Top metallic gleam
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -496,7 +756,6 @@ private fun FighterHealthAndUlti(
                     .align(Alignment.TopCenter)
                     .background(Color.White.copy(alpha = 0.30f))
             )
-            // Guilty Gear subtle 25% bar divider notches
             Row(
                 modifier = Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.SpaceEvenly

@@ -56,6 +56,10 @@ class GameRepository(
                     "favoriteFighterId" to "glitcherman",
                     "wins" to 0L,
                     "losses" to 0L,
+                    "winStreak" to 0L,
+                    "bestStreak" to 0L,
+                    "totalDamageDealt" to 0L,
+                    "roundsWonTotal" to 0L,
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
@@ -93,6 +97,29 @@ class GameRepository(
             }
     }
 
+    fun observeMatchHistory(userId: String): Flow<List<MatchHistoryEntry>> {
+        val colRef = db.collection(COLLECTION_USERS)
+            .document(userId)
+            .collection(COLLECTION_MATCH_HISTORY)
+        return colRef
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(20)
+            .snapshots()
+            .map { snapshot ->
+                snapshot.toObjects(
+                    MatchHistoryEntry::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )
+            }
+            .catch { error ->
+                if (error is CancellationException && error.cause == null) throw error
+                if (auth.currentUser?.uid == userId) {
+                    handleFirestoreError(error, OperationType.LIST, colRef.path)
+                }
+                throw error
+            }
+    }
+
     suspend fun updateFavoriteFighter(fighterId: String): Result<Unit> {
         val uid = try {
             requireUserId()
@@ -103,7 +130,7 @@ class GameRepository(
         return try {
             docRef.update(
                 mapOf(
-                    "favoriteFighterId" to fighterId,
+                    "favoriteFighterId" to fighterId.take(38),
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -116,7 +143,83 @@ class GameRepository(
         }
     }
 
-    suspend fun recordMatchResult(won: Boolean): Result<Unit> {
+    suspend fun recordMatchResult(
+        won: Boolean,
+        mode: String = "VS_BOT",
+        myFighterId: String = "glitcherman",
+        opponentFighterId: String = "jardin",
+        opponentName: String = "Bot",
+        stageId: String = "cyber_street",
+        myRoundsWon: Int = if (won) 2 else 0,
+        opponentRoundsWon: Int = if (won) 0 else 2,
+        damageDealt: Int = 0
+    ): Result<Unit> {
+        val uid = try {
+            requireUserId()
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+        val safeMode = when (mode) {
+            "VS_BOT", "ONLINE", "TOURNAMENT" -> mode
+            else -> "VS_BOT"
+        }
+        val userRef = db.collection(COLLECTION_USERS).document(uid)
+        val historyId = "m_${System.currentTimeMillis()}_${Random.nextInt(1000, 9999)}"
+        val historyRef = userRef.collection(COLLECTION_MATCH_HISTORY).document(historyId)
+
+        return try {
+            db.runTransaction { tx ->
+                val snap = tx.get(userRef)
+                val curWins = snap.getLong("wins") ?: 0L
+                val curLosses = snap.getLong("losses") ?: 0L
+                val curStreak = snap.getLong("winStreak") ?: 0L
+                val curBest = snap.getLong("bestStreak") ?: 0L
+                val curDmg = snap.getLong("totalDamageDealt") ?: 0L
+                val curRounds = snap.getLong("roundsWonTotal") ?: 0L
+
+                val nextStreak = if (won) curStreak + 1L else 0L
+                val nextBest = maxOf(curBest, nextStreak)
+                val safeDmg = damageDealt.coerceIn(0, 100_000).toLong()
+                val safeMyRounds = myRoundsWon.coerceIn(0, 5).toLong()
+
+                tx.update(
+                    userRef,
+                    mapOf(
+                        "wins" to (if (won) curWins + 1L else curWins),
+                        "losses" to (if (!won) curLosses + 1L else curLosses),
+                        "winStreak" to nextStreak,
+                        "bestStreak" to nextBest,
+                        "totalDamageDealt" to (curDmg + safeDmg).coerceAtMost(1_000_000_000L),
+                        "roundsWonTotal" to (curRounds + safeMyRounds).coerceAtMost(10_000_000L),
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                )
+
+                val historyPayload = mapOf(
+                    "mode" to safeMode,
+                    "myFighterId" to myFighterId.ifBlank { "glitcherman" }.take(38),
+                    "opponentFighterId" to opponentFighterId.ifBlank { "jardin" }.take(38),
+                    "opponentName" to opponentName.trim().ifBlank { "Adversaire" }.take(38),
+                    "stageId" to stageId.ifBlank { "cyber_street" }.take(38),
+                    "myRoundsWon" to safeMyRounds,
+                    "opponentRoundsWon" to opponentRoundsWon.coerceIn(0, 5).toLong(),
+                    "damageDealt" to safeDmg,
+                    "won" to won,
+                    "createdAt" to FieldValue.serverTimestamp()
+                )
+                tx.set(historyRef, historyPayload)
+                null
+            }.await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, userRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminBoostWins(amount: Long = 5L): Result<Unit> {
         val uid = try {
             requireUserId()
         } catch (e: Exception) {
@@ -124,10 +227,37 @@ class GameRepository(
         }
         val docRef = db.collection(COLLECTION_USERS).document(uid)
         return try {
-            val field = if (won) "wins" else "losses"
             docRef.update(
                 mapOf(
-                    field to FieldValue.increment(1L),
+                    "wins" to FieldValue.increment(amount.coerceIn(1L, 100L)),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun adminResetProfileStats(): Result<Unit> {
+        val uid = try {
+            requireUserId()
+        } catch (e: Exception) {
+            return Result.failure(e)
+        }
+        val docRef = db.collection(COLLECTION_USERS).document(uid)
+        return try {
+            docRef.update(
+                mapOf(
+                    "wins" to 0L,
+                    "losses" to 0L,
+                    "winStreak" to 0L,
+                    "bestStreak" to 0L,
+                    "totalDamageDealt" to 0L,
+                    "roundsWonTotal" to 0L,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -223,44 +353,45 @@ class GameRepository(
             return Result.failure(IllegalArgumentException("Code salon invalide (6 caractères A-Z / 0-9)."))
         }
         val docRef = db.collection(COLLECTION_ROOMS).document(code)
+        val safeGuest = guestName.trim().ifBlank { "Joueur 2" }.take(36)
         return try {
-            val snapshot = docRef.get().await()
-            if (!snapshot.exists()) {
-                return Result.failure(IllegalStateException("Salon introuvable : $code"))
-            }
-            val room = snapshot.toObject(
-                MatchRoom::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            ) ?: return Result.failure(IllegalStateException("Données du salon invalides."))
+            val joinedRoom = db.runTransaction { tx ->
+                val snapshot = tx.get(docRef)
+                if (!snapshot.exists()) {
+                    throw IllegalStateException("Salon introuvable : $code")
+                }
+                val room = snapshot.toObject(
+                    MatchRoom::class.java,
+                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                ) ?: throw IllegalStateException("Données du salon invalides.")
 
-            if (room.hostId == uid || uid in room.participantIds) {
-                return Result.success(room)
-            }
-            if (room.status != "waiting" || room.guestId.isNotBlank()) {
-                return Result.failure(IllegalStateException("Ce salon est déjà complet ou terminé."))
-            }
+                if (room.hostId == uid || uid in room.participantIds) {
+                    return@runTransaction room
+                }
+                if (room.status != "waiting" || room.guestId.isNotBlank()) {
+                    throw IllegalStateException("Ce salon est déjà complet ou en cours.")
+                }
 
-            val safeGuest = guestName.trim().ifBlank { "Joueur 2" }.take(36)
-            docRef.update(
-                mapOf(
-                    "guestId" to uid,
-                    "guestName" to safeGuest,
-                    "participantIds" to listOf(room.hostId, uid),
-                    "status" to "selecting",
-                    "updatedAt" to FieldValue.serverTimestamp()
+                tx.update(
+                    docRef,
+                    mapOf(
+                        "guestId" to uid,
+                        "guestName" to safeGuest,
+                        "participantIds" to listOf(room.hostId, uid),
+                        "status" to "selecting",
+                        "guestReady" to false,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
                 )
-            ).await()
-
-            val updated = docRef.get().await().toObject(
-                MatchRoom::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            ) ?: room.copy(
-                guestId = uid,
-                guestName = safeGuest,
-                participantIds = listOf(room.hostId, uid),
-                status = "selecting"
-            )
-            Result.success(updated)
+                room.copy(
+                    guestId = uid,
+                    guestName = safeGuest,
+                    participantIds = listOf(room.hostId, uid),
+                    status = "selecting",
+                    guestReady = false
+                )
+            }.await()
+            Result.success(joinedRoom)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -283,25 +414,6 @@ class GameRepository(
                 if (error is CancellationException && error.cause == null) throw error
                 if (auth.currentUser != null) {
                     handleFirestoreError(error, OperationType.GET, docRef.path)
-                }
-                throw error
-            }
-    }
-
-    fun observeMyRooms(userId: String): Flow<List<MatchRoom>> {
-        return db.collection(COLLECTION_ROOMS)
-            .whereArrayContains("participantIds", userId)
-            .snapshots()
-            .map { snapshot ->
-                snapshot.toObjects(
-                    MatchRoom::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
-            }
-            .catch { error ->
-                if (error is CancellationException && error.cause == null) throw error
-                if (auth.currentUser?.uid == userId) {
-                    handleFirestoreError(error, OperationType.LIST, COLLECTION_ROOMS)
                 }
                 throw error
             }
@@ -331,15 +443,26 @@ class GameRepository(
                 updates["p1RoundsWon"] = 0L
                 updates["p2RoundsWon"] = 0L
                 updates["winnerSide"] = "none"
+                updates["p1X"] = 0.25
+                updates["p1Y"] = 0.0
+                updates["p1Facing"] = 1L
+                updates["p1Action"] = "idle"
+                updates["p1ActionSeq"] = 0L
+                updates["p1Blocking"] = false
+                updates["p1Ulti"] = 0L
                 updates["p1DealtDmg"] = 0L
+                updates["p2X"] = 0.75
+                updates["p2Y"] = 0.0
+                updates["p2Facing"] = -1L
+                updates["p2Action"] = "idle"
+                updates["p2ActionSeq"] = 0L
+                updates["p2Blocking"] = false
+                updates["p2Ulti"] = 0L
                 updates["p2DealtDmg"] = 0L
             }
         } else {
             updates["guestFighterId"] = fighterId
             updates["guestReady"] = ready
-            if (startFight) {
-                updates["status"] = "fighting"
-            }
         }
         return try {
             docRef.update(updates).await()
@@ -401,13 +524,22 @@ class GameRepository(
                     "roundNumber" to nextRound,
                     "p1RoundsWon" to p1RoundsWon,
                     "p2RoundsWon" to p2RoundsWon,
-                    "p1DealtDmg" to 0L,
-                    "p2DealtDmg" to 0L,
                     "p1X" to 0.25,
                     "p1Y" to 0.0,
                     "p1Facing" to 1L,
                     "p1Action" to "idle",
+                    "p1ActionSeq" to 0L,
                     "p1Blocking" to false,
+                    "p1Ulti" to 0L,
+                    "p1DealtDmg" to 0L,
+                    "p2X" to 0.75,
+                    "p2Y" to 0.0,
+                    "p2Facing" to -1L,
+                    "p2Action" to "idle",
+                    "p2ActionSeq" to 0L,
+                    "p2Blocking" to false,
+                    "p2Ulti" to 0L,
+                    "p2DealtDmg" to 0L,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
@@ -436,6 +568,78 @@ class GameRepository(
         if (p2RoundsWon != null) updates["p2RoundsWon"] = p2RoundsWon
         return try {
             docRef.update(updates).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Retourne les deux joueurs dans le même salon vers la sélection de personnage pour la revanche.
+     */
+    suspend fun requestRematchToCharacterSelect(roomCode: String): Result<Unit> {
+        val docRef = db.collection(COLLECTION_ROOMS).document(roomCode)
+        return try {
+            docRef.update(
+                mapOf(
+                    "status" to "selecting",
+                    "hostReady" to false,
+                    "guestReady" to false,
+                    "roundNumber" to 1L,
+                    "p1RoundsWon" to 0L,
+                    "p2RoundsWon" to 0L,
+                    "winnerSide" to "none",
+                    "p1X" to 0.25,
+                    "p1Y" to 0.0,
+                    "p1Facing" to 1L,
+                    "p1Action" to "idle",
+                    "p1ActionSeq" to 0L,
+                    "p1Blocking" to false,
+                    "p1Ulti" to 0L,
+                    "p1DealtDmg" to 0L,
+                    "p2X" to 0.75,
+                    "p2Y" to 0.0,
+                    "p2Facing" to -1L,
+                    "p2Action" to "idle",
+                    "p2ActionSeq" to 0L,
+                    "p2Blocking" to false,
+                    "p2Ulti" to 0L,
+                    "p2DealtDmg" to 0L,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
+    suspend fun leaveMatchRoom(roomCode: String, isHost: Boolean): Result<Unit> {
+        val docRef = db.collection(COLLECTION_ROOMS).document(roomCode)
+        return try {
+            if (isHost) {
+                docRef.delete().await()
+            } else {
+                val snap = docRef.get().await()
+                val hostId = snap.getString("hostId") ?: return Result.success(Unit)
+                docRef.update(
+                    mapOf(
+                        "guestId" to "",
+                        "guestName" to "",
+                        "participantIds" to listOf(hostId),
+                        "status" to "waiting",
+                        "hostReady" to false,
+                        "guestReady" to false,
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            }
             Result.success(Unit)
         } catch (e: CancellationException) {
             throw e
@@ -542,6 +746,7 @@ class GameRepository(
 
     companion object {
         const val COLLECTION_USERS = "users"
+        const val COLLECTION_MATCH_HISTORY = "match_history"
         const val COLLECTION_ROOMS = "match_rooms"
         const val COLLECTION_FEEDBACKS = "playtest_feedbacks"
         private val ROOM_CODE_REGEX = Regex("^[A-Z0-9]{6}$")

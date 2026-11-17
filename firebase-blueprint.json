@@ -25,6 +25,22 @@
           "type": "integer",
           "description": "Total matches lost."
         },
+        "winStreak": {
+          "type": "integer",
+          "description": "Current consecutive victory streak."
+        },
+        "bestStreak": {
+          "type": "integer",
+          "description": "Highest consecutive victory streak achieved."
+        },
+        "totalDamageDealt": {
+          "type": "integer",
+          "description": "Cumulative combat damage dealt across matches."
+        },
+        "roundsWonTotal": {
+          "type": "integer",
+          "description": "Cumulative rounds won across matches."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time",
@@ -37,6 +53,56 @@
         }
       },
       "required": ["userId", "displayName", "favoriteFighterId", "wins", "losses", "createdAt", "updatedAt"]
+    },
+    "MatchHistoryEntry": {
+      "title": "MatchHistoryEntry",
+      "description": "Single completed duel record stored under the player's match history.",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["VS_BOT", "ONLINE", "TOURNAMENT"],
+          "description": "Game mode of the recorded match."
+        },
+        "myFighterId": {
+          "type": "string",
+          "description": "Fighter ID used by the local player."
+        },
+        "opponentFighterId": {
+          "type": "string",
+          "description": "Fighter ID used by the opponent."
+        },
+        "opponentName": {
+          "type": "string",
+          "description": "Display name of the opponent or AI bot."
+        },
+        "stageId": {
+          "type": "string",
+          "description": "Arena stage identifier."
+        },
+        "myRoundsWon": {
+          "type": "integer",
+          "description": "Rounds won by the player."
+        },
+        "opponentRoundsWon": {
+          "type": "integer",
+          "description": "Rounds won by the opponent."
+        },
+        "damageDealt": {
+          "type": "integer",
+          "description": "Damage dealt during the match."
+        },
+        "won": {
+          "type": "boolean",
+          "description": "Whether the local player won the match."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Match completion server timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": ["mode", "myFighterId", "opponentFighterId", "opponentName", "stageId", "myRoundsWon", "opponentRoundsWon", "damageDealt", "won", "createdAt"]
     },
     "MatchRoom": {
       "title": "MatchRoom",
@@ -208,12 +274,25 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["authorId", "authorName", "modeTested", "category", "fighterId", "rating", "comment", "createdAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Optional trusted admin UID record.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" }
+      },
+      "required": ["uid"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/PlayerProfile" },
       "description": "Player profile and match statistics isolated per user."
+    },
+    "/users/{userId}/match_history/{matchId}": {
+      "schema": { "$ref": "#/entities/MatchHistoryEntry" },
+      "description": "Completed match history isolated under each player profile."
     },
     "/match_rooms/{roomId}": {
       "schema": { "$ref": "#/entities/MatchRoom" },
@@ -222,6 +301,10 @@
     "/playtest_feedbacks/{feedbackId}": {
       "schema": { "$ref": "#/entities/PlaytestFeedback" },
       "description": "Shared playtester feedback notes for IRL and online test sessions."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted admin UID registry."
     }
   }
 }

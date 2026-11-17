@@ -106,6 +106,25 @@ fun MoveListSheet(
                 badgeColor = FlameOrange,
                 move = fighter.baseAbility
             )
+
+            Text(
+                text = "COMBOS DIRECTIONNELS (2 NOUVELLES ATTAQUES)",
+                style = MaterialTheme.typography.labelLarge,
+                color = UltiGold,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+
+            MoveDetailCard(
+                badge = "← → + CAPACITÉ",
+                badgeColor = fighter.primaryColor,
+                move = fighter.comboBaseMove
+            )
+            MoveDetailCard(
+                badge = "→ ← + CLASSIQUE",
+                badgeColor = fighter.accentColor,
+                move = fighter.comboClassicMove
+            )
+
             MoveDetailCard(
                 badge = "ULTIME (100%)",
                 badgeColor = UltiGold,

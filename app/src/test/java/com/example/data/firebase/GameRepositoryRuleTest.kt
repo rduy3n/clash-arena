@@ -72,14 +72,68 @@ class GameRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertTrue(withTimeout(TIMEOUT_MS) {
             aliceRepo.finishMatch(room.roomCode, winnerSide = "p1", p1RoundsWon = 2L, p2RoundsWon = 0L).isSuccess
         })
+
+        // Rematch back to character selection inside the same room
+        signInTestUser(BOB_EMAIL)
+        assertTrue(withTimeout(TIMEOUT_MS) {
+            bobRepo.requestRematchToCharacterSelect(room.roomCode).isSuccess
+        })
+        val rematched = withTimeout(FLOW_TIMEOUT_MS) {
+            bobRepo.observeMatchRoom(room.roomCode).first { it?.status == "selecting" && it.winnerSide == "none" }
+        }
+        assertEquals(1L, rematched?.roundNumber)
+
+        // Guest leaves cleanly back to waiting
+        assertTrue(withTimeout(TIMEOUT_MS) {
+            bobRepo.leaveMatchRoom(room.roomCode, isHost = false).isSuccess
+        })
+        signInTestUser(ALICE_EMAIL)
+        val afterLeave = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeMatchRoom(room.roomCode).first { it?.status == "waiting" && it.guestId.isEmpty() }
+        }
+        assertEquals(listOf(aliceUid), afterLeave?.participantIds)
     }
 
     @Test
-    fun observeMyRooms_unauthenticatedUser_failsWithPermissionDenied() = runBlocking {
+    fun recordMatchResult_updatesProfileStatsAndHistory() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val repo = GameRepository(firestore, auth)
+        withTimeout(TIMEOUT_MS) { repo.ensureProfile("Alice").getOrThrow() }
+
+        val res = withTimeout(TIMEOUT_MS) {
+            repo.recordMatchResult(
+                won = true,
+                mode = "TOURNAMENT",
+                myFighterId = "glitcherman",
+                opponentFighterId = "le_chinois",
+                opponentName = "Maître Chen",
+                stageId = "orbital_station",
+                myRoundsWon = 2,
+                opponentRoundsWon = 1,
+                damageDealt = 2400
+            )
+        }
+        assertTrue(res.isSuccess)
+
+        val profile = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeProfile(aliceUid).first { (it?.wins ?: 0L) == 1L }
+        }
+        assertEquals(2400L, profile?.totalDamageDealt)
+        assertEquals(2L, profile?.roundsWonTotal)
+
+        val history = withTimeout(FLOW_TIMEOUT_MS) {
+            repo.observeMatchHistory(aliceUid).first { it.isNotEmpty() }
+        }
+        assertEquals("TOURNAMENT", history.first().mode)
+        assertEquals("orbital_station", history.first().stageId)
+    }
+
+    @Test
+    fun observeMatchHistory_unauthenticatedUser_failsWithPermissionDenied() = runBlocking {
         auth.signOut()
         val repo = GameRepository(firestore, auth)
         val err = runCatching {
-            withTimeout(FLOW_TIMEOUT_MS) { repo.observeMyRooms("some_uid").first() }
+            withTimeout(FLOW_TIMEOUT_MS) { repo.observeMatchHistory("some_uid").first() }
         }.exceptionOrNull()
         val fsErr = checkNotNull(err?.unwrapFirestoreException()) { "Expected FirebaseFirestoreException, got $err" }
         assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, fsErr.code)

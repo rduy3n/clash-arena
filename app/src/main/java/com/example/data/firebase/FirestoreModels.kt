@@ -1,10 +1,12 @@
 package com.example.data.firebase
 
+import androidx.annotation.Keep
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.ServerTimestamp
 
+@Keep
 @IgnoreExtraProperties
 data class PlayerProfile(
     @DocumentId val id: String = "",
@@ -13,10 +15,31 @@ data class PlayerProfile(
     val favoriteFighterId: String = "glitcherman",
     val wins: Long = 0L,
     val losses: Long = 0L,
+    val winStreak: Long = 0L,
+    val bestStreak: Long = 0L,
+    val totalDamageDealt: Long = 0L,
+    val roundsWonTotal: Long = 0L,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
+@Keep
+@IgnoreExtraProperties
+data class MatchHistoryEntry(
+    @DocumentId val id: String = "",
+    val mode: String = "VS_BOT",
+    val myFighterId: String = "glitcherman",
+    val opponentFighterId: String = "jardin",
+    val opponentName: String = "Bot",
+    val stageId: String = "cyber_street",
+    val myRoundsWon: Long = 0L,
+    val opponentRoundsWon: Long = 0L,
+    val damageDealt: Long = 0L,
+    val won: Boolean = false,
+    @ServerTimestamp val createdAt: Timestamp? = null
+)
+
+@Keep
 @IgnoreExtraProperties
 data class MatchRoom(
     @DocumentId val id: String = "",
@@ -56,6 +79,7 @@ data class MatchRoom(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
+@Keep
 @IgnoreExtraProperties
 data class PlaytestFeedback(
     @DocumentId val id: String = "",

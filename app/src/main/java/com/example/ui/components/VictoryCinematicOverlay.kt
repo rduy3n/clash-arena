@@ -2,9 +2,9 @@ package com.example.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,12 +13,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.SportsMma
@@ -38,37 +43,32 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.R
 import com.example.game.data.FighterDefinition
 import com.example.game.data.FighterVisualStyle
 import com.example.game.data.GameMode
+import com.example.game.engine.ArcadeRankCalculator
+import com.example.game.engine.ArcadeRankSummary
 import com.example.game.engine.ArenaWorldState
+import com.example.game.engine.FinishType
 import com.example.ui.theme.ChakraPetchFamily
 import com.example.ui.theme.CrimsonHp
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.EmeraldHp
 import com.example.ui.theme.FlameOrange
 import com.example.ui.theme.ObsidianBg
-import com.example.ui.theme.ObsidianOutline
-import com.example.ui.theme.ObsidianSurface
 import com.example.ui.theme.RussoOneFamily
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.UltiGold
@@ -76,25 +76,52 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Cinématique animée personnalisée pour le vainqueur du combat (mode horizontal).
- * - Jardin : explosion émeraude/or derrière lui, puis sa main saisit et fissure la caméra !
- * - Maître Chen : devant un temple samouraï illuminé en train de manger des nouilles fumantes.
- * - Glitcherman : piratage complet de l'écran avec pluie de code, fenêtres système et glitch RGB.
- * - Daron Brésilien : posé tranquillement sur un transat au coucher du soleil avec boisson tropicale.
+ * Cinématiques de fin plein écran façon Street Fighter 6 :
+ * illustration 16:9 avec zoom Ken Burns, FX anime propres au combattant,
+ * badge Finish (PERFECT / ULTI FINISH / K.O.) et bilan arcade compact avec rang S/A/B/C.
  */
 @Composable
 fun VictoryCinematicOverlay(
     world: ArenaWorldState,
     localSide: Int,
     onRematchLocal: () -> Unit,
+    onOnlineRematchToSelect: () -> Unit = {},
+    onTournamentContinue: () -> Unit = {},
     onExitBattle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val winner = if (world.winnerSide == 1) world.p1.def else world.p2.def
+    val winnerRuntime = if (world.winnerSide == 1) world.p1 else world.p2
+    val winner = winnerRuntime.def
     val didWin = world.winnerSide == localSide
+    val localRuntime = if (localSide == 1) world.p1 else world.p2
+    val myRounds = if (localSide == 1) world.p1RoundsWon else world.p2RoundsWon
+    val oppRounds = if (localSide == 1) world.p2RoundsWon else world.p1RoundsWon
+    val totalDamage = localRuntime.matchDamageTotal.coerceAtLeast(localRuntime.dealtDamageTotal)
+    val remainingHpRatio = (localRuntime.hp.toFloat() / localRuntime.def.stats.maxHp.coerceAtLeast(1)).coerceIn(0f, 1f)
+
+    val rankSummary = remember(
+        didWin,
+        myRounds,
+        oppRounds,
+        remainingHpRatio,
+        localRuntime.maxComboCount,
+        totalDamage,
+        world.finishType
+    ) {
+        ArcadeRankCalculator.evaluate(
+            won = didWin,
+            roundsWon = myRounds,
+            roundsLost = oppRounds,
+            remainingHpRatio = remainingHpRatio,
+            maxCombo = localRuntime.maxComboCount,
+            totalDamage = totalDamage,
+            finishType = world.finishType
+        )
+    }
 
     var replayKey by remember { mutableIntStateOf(0) }
     var elapsedMs by remember { mutableLongStateOf(0L) }
@@ -107,573 +134,308 @@ fun VictoryCinematicOverlay(
         }
     }
 
+    val flashAlpha = ((1f - (elapsedMs / 320f)) * 0.78f).coerceIn(0f, 0.78f)
+    val quoteReveal = ((elapsedMs - 220f) / 360f).coerceIn(0f, 1f)
+    val rankReveal = ((elapsedMs - 400f) / 360f).coerceIn(0f, 1f)
+
+    val slantedShape = remember {
+        GenericShape { size, _ ->
+            val skew = (size.height * 0.24f).coerceAtMost(size.width * 0.12f)
+            moveTo(skew, 0f)
+            lineTo(size.width, 0f)
+            lineTo(size.width - skew, size.height)
+            lineTo(0f, size.height)
+            close()
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(ObsidianBg)
             .testTag("victory_cinematic_overlay")
     ) {
-        // Character-specific animated full-screen cinematic theater
-        when (winner.visualStyle) {
-            FighterVisualStyle.JARDIN -> JardinVictoryCinematic(winner = winner, elapsedMs = elapsedMs)
-            FighterVisualStyle.CHINOIS_BAGUETTES -> ChenTempleNoodlesCinematic(winner = winner, elapsedMs = elapsedMs)
-            FighterVisualStyle.GLITCHERMAN -> GlitchermanHackCinematic(winner = winner, elapsedMs = elapsedMs)
-            FighterVisualStyle.DARON_BRESILIEN -> DaronTransatCinematic(winner = winner, elapsedMs = elapsedMs)
-        }
-
-        // Top Result Title Pill
-        Surface(
-            color = ObsidianBg.copy(alpha = 0.82f),
-            shape = RoundedCornerShape(14.dp),
-            border = BorderStroke(1.8.dp, if (didWin) UltiGold else CrimsonHp),
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = if (didWin) "VICTOIRE !" else "DÉFAITE",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = if (didWin) UltiGold else CrimsonHp
-                )
-                Text(
-                    text = "${winner.name} (${world.p1RoundsWon} - ${world.p2RoundsWon})",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White
-                )
-            }
-        }
-
-        // Sleek Bottom Action Bar (preserves rematch_button & exit_match_button tags)
-        Surface(
-            color = ObsidianBg.copy(alpha = 0.90f),
-            border = BorderStroke(1.2.dp, ObsidianOutline),
-            shape = RoundedCornerShape(18.dp),
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { replayKey++ },
-                    border = BorderStroke(1.dp, ElectricCyan)
-                ) {
-                    Icon(Icons.Default.Replay, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("REJOUER", color = ElectricCyan)
-                }
-
-                if (world.mode == GameMode.VS_BOT) {
-                    Button(
-                        onClick = onRematchLocal,
-                        colors = ButtonDefaults.buttonColors(containerColor = FlameOrange),
-                        modifier = Modifier.testTag("rematch_button")
-                    ) {
-                        Icon(Icons.Default.SportsMma, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("REVANCHE")
-                    }
-                }
-
-                OutlinedButton(
-                    onClick = onExitBattle,
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
-                    modifier = Modifier.testTag("exit_match_button")
-                ) {
-                    Icon(Icons.Default.Home, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("MENU", color = Color.White)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun JardinVictoryCinematic(winner: FighterDefinition, elapsedMs: Long) {
-    // Timeline:
-    // 0..750ms: colossal explosion builds behind Jardin
-    // 750..1150ms: fist/hand lunges toward the camera lens
-    // 1150ms+: impact shake + camera screen cracks into radial spiderweb glass!
-    val explosionT = (elapsedMs / 950f).coerceIn(0f, 1f)
-    val lungeT = ((elapsedMs - 700f) / 420f).coerceIn(0f, 1f)
-    val impactAge = (elapsedMs - 1120L).coerceAtLeast(0L)
-    val isCracked = elapsedMs >= 1120L
-    val shakeAmp = if (isCracked && impactAge < 520L) (1f - impactAge / 520f) * 20f else 0f
-    val shakeX = if (shakeAmp > 0f) sin(elapsedMs * 0.14f) * shakeAmp else 0f
-    val shakeY = if (shakeAmp > 0f) cos(elapsedMs * 0.18f) * shakeAmp else 0f
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                translationX = shakeX
-                translationY = shakeY
-            }
-    ) {
-        // 1. Background explosion canvas behind Jardin
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val expCenter = Offset(w * 0.50f, h * 0.54f)
-
-            drawRect(
-                brush = Brush.verticalGradient(
-                    listOf(Color(0xFF0A140D), Color(0xFF1A2F1C), Color(0xFF06080B))
-                )
-            )
-
-            // Massive emerald & amber fireball plumes
-            val blastRadius = h * (0.28f + explosionT * 0.62f)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color.White, Color(0xFFFFD600), Color(0xFFFF6D00), Color(0xFF00E676), Color.Transparent),
-                    center = expCenter,
-                    radius = blastRadius
-                ),
-                radius = blastRadius,
-                center = expCenter
-            )
-            // Secondary billowing explosion clouds
-            for (c in 0..7) {
-                val ang = c * (2f * PI.toFloat() / 8f) + elapsedMs * 0.0004f
-                val dist = blastRadius * 0.45f
-                val cx = expCenter.x + cos(ang) * dist
-                val cy = expCenter.y + sin(ang) * dist * 0.72f
-                drawCircle(
-                    color = (if (c % 2 == 0) Color(0xFFFF9100) else Color(0xFF00C853)).copy(alpha = 0.52f),
-                    radius = blastRadius * 0.30f,
-                    center = Offset(cx, cy)
-                )
-            }
-            // Shockwave ring
-            drawCircle(
-                color = Color(0xFFFFD600).copy(alpha = (1f - explosionT * 0.7f) * 0.85f),
-                radius = blastRadius * 1.08f,
-                center = expCenter,
-                style = Stroke(width = 10f)
-            )
-        }
-
-        // 2. Jardin Hero Portrait Standing in Front of Explosion
-        Image(
-            painter = painterResource(id = winner.portraitRes),
-            contentDescription = winner.name,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(230.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .border(3.dp, UltiGold, RoundedCornerShape(24.dp))
-                .graphicsLayer {
-                    val s = 0.92f + explosionT * 0.10f
-                    scaleX = s
-                    scaleY = s
-                }
-        )
-
-        // 3. Giant Mossy Hand Grabbing / Lunging & Radial Cracked Glass Lens
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-            val center = Offset(w * 0.52f, h * 0.48f)
-
-            if (lungeT > 0f) {
-                // Hand / giant fist reaching from bottom-right toward camera center
-                val scale = 0.35f + lungeT * 0.95f
-                val handPos = Offset(
-                    x = center.x + (1f - lungeT) * w * 0.25f,
-                    y = center.y + (1f - lungeT) * h * 0.35f
-                )
-                val palmR = h * 0.13f * scale
-                // Forearm
-                drawLine(
-                    color = Color(0xFF1F4E29),
-                    start = Offset(w * 0.88f, h * 1.05f),
-                    end = handPos,
-                    strokeWidth = palmR * 1.45f,
-                    cap = StrokeCap.Round
-                )
-                // Giant gripping palm & fingers
-                drawCircle(color = Color(0xFF2E6B3A), radius = palmR, center = handPos)
-                drawCircle(color = Color(0xFF070910), radius = palmR, center = handPos, style = Stroke(width = 5f))
-                for (f in -2..2) {
-                    val ang = -PI.toFloat() * 0.5f + f * 0.34f
-                    val fingerTip = Offset(handPos.x + cos(ang) * palmR * 1.45f, handPos.y + sin(ang) * palmR * 1.45f)
-                    drawLine(
-                        color = Color(0xFF070910),
-                        start = handPos,
-                        end = fingerTip,
-                        strokeWidth = palmR * 0.44f,
-                        cap = StrokeCap.Round
-                    )
-                    drawLine(
-                        color = Color(0xFF00C853),
-                        start = handPos,
-                        end = fingerTip,
-                        strokeWidth = palmR * 0.34f,
-                        cap = StrokeCap.Round
-                    )
-                }
-            }
-
-            if (isCracked) {
-                // Full-screen spiderweb cracked camera lens!
-                drawCircle(
-                    color = Color.White.copy(alpha = 0.16f),
-                    radius = h * 0.08f,
-                    center = center
-                )
-                val rays = 14
-                for (i in 0 until rays) {
-                    val baseAng = (i / rays.toFloat()) * (2f * PI.toFloat()) + (i % 3) * 0.09f
-                    val crackPath = Path().apply {
-                        moveTo(center.x, center.y)
-                        var curDist = 0f
-                        for (seg in 1..5) {
-                            curDist += w * 0.12f
-                            val jitter = if (seg % 2 == 0) 0.08f else -0.07f
-                            val px = center.x + cos(baseAng + jitter) * curDist
-                            val py = center.y + sin(baseAng + jitter) * curDist
-                            lineTo(px, py)
-                        }
-                    }
-                    drawPath(crackPath, color = Color(0xFF05070B).copy(alpha = 0.85f), style = Stroke(width = 5.5f, join = StrokeJoin.Round))
-                    drawPath(crackPath, color = Color.White.copy(alpha = 0.92f), style = Stroke(width = 2.4f, join = StrokeJoin.Round))
-                }
-                // Concentric spiderweb glass rings with specular shards
-                for (ring in 1..3) {
-                    val r = h * (0.15f * ring)
-                    drawCircle(
-                        color = Color.White.copy(alpha = 0.60f),
-                        radius = r,
-                        center = center,
-                        style = Stroke(width = 2.4f)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChenTempleNoodlesCinematic(winner: FighterDefinition, elapsedMs: Long) {
-    val settleT = (elapsedMs / 900f).coerceIn(0f, 1f)
-    val liftCycle = 0.5f + 0.5f * sin(elapsedMs * 0.004f)
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Samurai Temple Artwork Background
-        Image(
-            painter = painterResource(id = R.drawable.img_arena_dojo_gg),
-            contentDescription = "Temple Samouraï",
-            contentScale = ContentScale.Crop,
+        // 1. 100% Animated 60 FPS Choreographed Victory Scene (no static image)
+        VictoryChoreographyScene(
+            winner = winner,
+            elapsedMs = elapsedMs,
             modifier = Modifier.fillMaxSize()
         )
+
+        // 2. Subtle Edge Scrim so top/bottom HUD stays legible while keeping center action crisp
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    Brush.horizontalGradient(
-                        listOf(Color(0xBA090710), Color(0x55090710), Color(0xCA090710))
+                    Brush.verticalGradient(
+                        listOf(
+                            Color(0x9904060D),
+                            Color.Transparent,
+                            Color(0x1804060D),
+                            Color(0xBB04060D)
+                        )
                     )
                 )
         )
 
-        // Temple lanterns, sakura petals, steaming noodle bowl & chopstick noodle lift!
+        // 3. Fighter-specific Anime FX Overlay + Radial Speedlines
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-
-            // Glowing Japanese temple lanterns hanging from eaves
-            for (lxFrac in listOf(0.14f, 0.86f)) {
-                val lx = w * lxFrac
-                val sway = sin(elapsedMs * 0.002f + lxFrac * 10f) * 8f
-                drawLine(Color(0xFF1A0F0A), Offset(lx, 0f), Offset(lx + sway, h * 0.14f), strokeWidth = 4f)
-                drawOval(
-                    brush = Brush.radialGradient(listOf(Color(0xFFFFD600), Color(0xFFFF3D00))),
-                    topLeft = Offset(lx + sway - 24f, h * 0.14f),
-                    size = Size(48f, 64f)
-                )
-                drawOval(
-                    color = Color(0xFF210703),
-                    topLeft = Offset(lx + sway - 24f, h * 0.14f),
-                    size = Size(48f, 64f),
-                    style = Stroke(width = 3f)
-                )
-            }
-
-            // Drifting pink sakura petals
-            for (p in 0..18) {
-                val t = ((elapsedMs * 0.00018f) + p * 0.09f) % 1f
-                val px = ((p * 0.06f + sin(elapsedMs * 0.0015f + p) * 0.04f) % 1f) * w
-                val py = t * h
-                drawOval(
-                    color = Color(0xFFFFB2C8).copy(alpha = 0.78f),
-                    topLeft = Offset(px, py),
-                    size = Size(10f, 6f)
-                )
-            }
-
-            // Artisan Ramen / Noodle Bowl on the right foreground table
-            val bowlCenter = Offset(w * 0.64f, h * 0.60f)
-            val bowlW = h * 0.44f
-            val bowlH = h * 0.24f
-
-            // Wooden temple table plank
-            drawRect(
-                brush = Brush.verticalGradient(listOf(Color(0xFF5D4037), Color(0xFF2D1B14))),
-                topLeft = Offset(w * 0.44f, bowlCenter.y + bowlH * 0.34f),
-                size = Size(w * 0.44f, h * 0.42f)
-            )
-
-            // Ceramic Bowl
-            val bowlPath = Path().apply {
-                moveTo(bowlCenter.x - bowlW * 0.5f, bowlCenter.y - bowlH * 0.2f)
-                lineTo(bowlCenter.x + bowlW * 0.5f, bowlCenter.y - bowlH * 0.2f)
-                quadraticTo(bowlCenter.x + bowlW * 0.42f, bowlCenter.y + bowlH * 0.55f, bowlCenter.x, bowlCenter.y + bowlH * 0.58f)
-                quadraticTo(bowlCenter.x - bowlW * 0.42f, bowlCenter.y + bowlH * 0.55f, bowlCenter.x - bowlW * 0.5f, bowlCenter.y - bowlH * 0.2f)
-                close()
-            }
-            drawPath(
-                bowlPath,
-                brush = Brush.verticalGradient(listOf(Color(0xFFD50000), Color(0xFF7F0000)))
-            )
-            drawPath(bowlPath, color = Color(0xFF0A080C), style = Stroke(width = 4f))
-            // Gold rim & broth
-            drawOval(
-                color = Color(0xFFFFAB40),
-                topLeft = Offset(bowlCenter.x - bowlW * 0.47f, bowlCenter.y - bowlH * 0.32f),
-                size = Size(bowlW * 0.94f, bowlH * 0.32f)
-            )
-            drawOval(
-                color = Color(0xFFFFD600),
-                topLeft = Offset(bowlCenter.x - bowlW * 0.50f, bowlCenter.y - bowlH * 0.34f),
-                size = Size(bowlW, bowlH * 0.35f),
-                style = Stroke(width = 4f)
-            )
-
-            // Lifted golden noodles & twin chopsticks!
-            val liftY = bowlCenter.y - bowlH * (0.65f + liftCycle * 0.42f)
-            for (n in -2..2) {
-                val nx = bowlCenter.x + n * 10f
-                val noodle = Path().apply {
-                    moveTo(nx, bowlCenter.y - bowlH * 0.18f)
-                    quadraticTo(nx + sin(elapsedMs * 0.008f + n) * 6f, (bowlCenter.y + liftY) * 0.5f, nx + n * 2f, liftY)
-                }
-                drawPath(noodle, color = Color(0xFFFFF176), style = Stroke(width = 5f, cap = StrokeCap.Round))
-            }
-            // Twin jade & gold chopsticks pinching the noodles
-            drawLine(
-                color = Color(0xFF00E676),
-                start = Offset(bowlCenter.x - bowlW * 0.22f, liftY - 6f),
-                end = Offset(bowlCenter.x + bowlW * 0.62f, liftY - 58f),
-                strokeWidth = 7f,
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = Color(0xFFFFD600),
-                start = Offset(bowlCenter.x - bowlW * 0.20f, liftY + 8f),
-                end = Offset(bowlCenter.x + bowlW * 0.64f, liftY - 38f),
-                strokeWidth = 7f,
-                cap = StrokeCap.Round
-            )
-
-            // Rising animated steam wisps from hot noodles
-            for (s in 0..3) {
-                val st = ((elapsedMs * 0.0005f) + s * 0.25f) % 1f
-                val sx = bowlCenter.x - 30f + s * 22f + sin(st * 6f + s) * 10f
-                val sy = bowlCenter.y - bowlH * 0.4f - st * h * 0.26f
-                drawCircle(
-                    color = Color.White.copy(alpha = (1f - st) * 0.35f),
-                    radius = 12f + st * 14f,
-                    center = Offset(sx, sy)
-                )
+            drawVictorySpeedLines(winner = winner, elapsedMs = elapsedMs)
+            when (winner.visualStyle) {
+                FighterVisualStyle.JARDIN -> drawJardinVictoryFx(elapsedMs)
+                FighterVisualStyle.CHINOIS_BAGUETTES -> drawChenVictoryFx(elapsedMs)
+                FighterVisualStyle.GLITCHERMAN -> drawGlitchermanVictoryFx(elapsedMs)
+                FighterVisualStyle.DARON_BRESILIEN -> drawDaronVictoryFx(elapsedMs)
             }
         }
 
-        // Maître Chen Portrait + Cozy Temple Quote
-        Row(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 34.dp, bottom = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Image(
-                painter = painterResource(id = winner.portraitRes),
-                contentDescription = winner.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(168.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .border(3.dp, UltiGold, RoundedCornerShape(20.dp))
-                    .graphicsLayer { alpha = settleT }
-            )
-            Surface(
-                color = ObsidianBg.copy(alpha = 0.85f),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.5.dp, UltiGold)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("PAIX DU TEMPLE", style = MaterialTheme.typography.labelSmall, color = UltiGold)
-                    Text(
-                        text = "« Un bol de nouilles\naprès la victoire ! »",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GlitchermanHackCinematic(winner: FighterDefinition, elapsedMs: Long) {
-    val glitchStep = (elapsedMs / 90L).toInt()
-    val rgbJitterX = if (glitchStep % 4 == 0) 8f else -4f
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF030712))
-    ) {
-        // Matrix code rain & RGB glitch scan bars
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-
-            // Cyber terminal grid
-            val step = 48f
-            var x = 0f
-            while (x < w) {
-                drawLine(Color(0xFF00E5FF).copy(alpha = 0.09f), Offset(x, 0f), Offset(x, h), strokeWidth = 1f)
-                x += step
-            }
-            var y = 0f
-            while (y < h) {
-                drawLine(Color(0xFF00E5FF).copy(alpha = 0.09f), Offset(0f, y), Offset(w, y), strokeWidth = 1f)
-                y += step
-            }
-
-            // Falling Matrix/Hex streaks
-            for (col in 0..22) {
-                val cx = (col / 22f) * w + 10f
-                val headY = (((elapsedMs * 0.28f) + col * 97f) % (h + 180f)) - 90f
-                drawLine(
-                    brush = Brush.verticalGradient(
-                        listOf(Color.Transparent, Color(0xFF00E5FF).copy(alpha = 0.65f), Color.White),
-                        startY = headY - 120f,
-                        endY = headY
-                    ),
-                    start = Offset(cx, headY - 120f),
-                    end = Offset(cx, headY),
-                    strokeWidth = 3f
-                )
-            }
-
-            // Sudden RGB horizontal glitch tears
-            for (tear in 0..5) {
-                val ty = ((tear * 0.17f + (glitchStep % 7) * 0.09f) % 1f) * h
-                val tw = w * (0.25f + (tear % 3) * 0.22f)
-                val tx = ((tear * 0.31f + glitchStep * 0.13f) % 0.7f) * w
-                drawRect(
-                    color = (if (tear % 2 == 0) Color(0xFFFF2A85) else Color(0xFF00E5FF)).copy(alpha = 0.38f),
-                    topLeft = Offset(tx, ty),
-                    size = Size(tw, 9f)
-                )
-            }
-        }
-
-        // Main Hacked Terminal Window + Pop-up Windows
-        Row(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(0.88f)
-                .padding(bottom = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left: Hacked Portrait Frame with RGB offset
+        // 4. Opening Cinema Impact Flash (0..320ms)
+        if (flashAlpha > 0f) {
             Box(
                 modifier = Modifier
-                    .size(182.dp)
-                    .graphicsLayer { translationX = rgbJitterX * 0.5f }
-                    .clip(RoundedCornerShape(16.dp))
-                    .border(2.5.dp, ElectricCyan, RoundedCornerShape(16.dp))
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = flashAlpha))
+            )
+        }
+
+        // 5. Cinema Letterbox Bars
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(16.dp)
+                .align(Alignment.TopCenter)
+                .background(Color.Black.copy(alpha = 0.90f))
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(16.dp)
+                .align(Alignment.BottomCenter)
+                .background(Color.Black.copy(alpha = 0.90f))
+        )
+
+        // 6. Structured HUD Layer (Top Banner, Middle Quote + Arcade Rank, Bottom Action Bar)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // TOP BAR: Victory/Defeat Banner + Finish Type Badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Image(
-                    painter = painterResource(id = winner.portraitRes),
-                    contentDescription = winner.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xCC020612))
-                        .align(Alignment.BottomCenter)
-                        .padding(6.dp)
+                Surface(
+                    color = Color(0xEC080B14),
+                    shape = slantedShape,
+                    border = BorderStroke(2.2.dp, if (didWin) UltiGold else CrimsonHp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        winner.primaryColor.copy(alpha = 0.24f),
+                                        Color(0xFF0A1020)
+                                    )
+                                )
+                            )
+                            .padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Text(
+                            text = if (didWin) "VICTOIRE LÉGENDAIRE !" else "DÉFAITE HÉROÏQUE",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontStyle = FontStyle.Italic,
+                                fontWeight = FontWeight.Black
+                            ),
+                            color = if (didWin) UltiGold else CrimsonHp
+                        )
+                        Text(
+                            text = "${winner.name.uppercase()} • ${world.p1RoundsWon} - ${world.p2RoundsWon}",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = Color.White
+                        )
+                    }
+                }
+
+                // Finish Type Callout Badge
+                val finishColor = when (world.finishType) {
+                    FinishType.PERFECT -> UltiGold
+                    FinishType.ULTI_FINISH -> ElectricCyan
+                    FinishType.KO -> FlameOrange
+                    FinishType.TIME_UP -> Color(0xFFB0BEC5)
+                }
+                Surface(
+                    color = Color(0xEC080B14),
+                    shape = slantedShape,
+                    border = BorderStroke(1.8.dp, finishColor)
                 ) {
                     Text(
-                        text = "ADMIN://GLITCHERMAN",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ElectricCyan
+                        text = world.finishType.label,
+                        fontFamily = RussoOneFamily,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Black
+                        ),
+                        color = finishColor,
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
                     )
                 }
             }
 
-            // Right: Hacked System Console
-            Surface(
-                color = Color(0xE6070D1D),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(2.dp, ElectricCyan),
-                modifier = Modifier.weight(1f)
+            // MIDDLE ROW: Quote Card (Left) + Arcade Rank Card (Right)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                // Fighter Tagline & Victory Quote
+                Surface(
+                    color = Color(0xDF070B14),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.5.dp, winner.primaryColor.copy(alpha = 0.85f)),
+                    modifier = Modifier
+                        .widthIn(max = 360.dp)
+                        .graphicsLayer {
+                            alpha = quoteReveal
+                            translationX = (1f - quoteReveal) * -42f
+                        }
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Text(
-                            text = "ROOT_TERMINAL // SYSTÈME PIRATÉ",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color(0xFFFF2A85)
+                            text = winner.victoryTagline,
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black),
+                            color = winner.primaryColor
                         )
                         Text(
-                            text = "[100% PWNED]",
+                            text = winner.victoryQuote,
+                            fontFamily = RussoOneFamily,
+                            style = MaterialTheme.typography.titleMedium.copy(fontStyle = FontStyle.Italic),
+                            color = Color.White
+                        )
+                        Text(
+                            text = "ARÈNE : ${world.stage.name.uppercase()}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = EmeraldHp
+                            color = TextSecondary
                         )
                     }
-                    Text(
-                        text = "> OVERRIDE ARENA_FIREWALL... OK\n> INJECT BAYONETTA_PROTOCOL.BIN... OK\n> CONTRÔLE TOTAL DE L'ÉCRAN ACQUIS",
-                        fontFamily = ChakraPetchFamily,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = ElectricCyan
-                    )
-                    Surface(
-                        color = Color(0xFFFF2A85).copy(alpha = 0.22f),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, Color(0xFFFF2A85))
+                }
+
+                // Compact Arcade Scoreboard with Animated Rank S / A / B / C
+                ArcadeRankScoreCard(
+                    rank = rankSummary,
+                    totalDamage = totalDamage,
+                    maxCombo = localRuntime.maxComboCount,
+                    myRounds = myRounds,
+                    oppRounds = oppRounds,
+                    accentColor = winner.primaryColor,
+                    revealFraction = rankReveal
+                )
+            }
+
+            // BOTTOM BAR: Replay Cinematic + Mode Actions
+            Surface(
+                color = Color(0xEE080B14),
+                border = BorderStroke(1.6.dp, UltiGold.copy(alpha = 0.85f)),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { replayKey++ },
+                        border = BorderStroke(1.5.dp, ElectricCyan),
+                        modifier = Modifier
+                            .height(48.dp)
+                            .testTag("replay_cinematic_button")
                     ) {
-                        Text(
-                            text = "SYSTÈME PIRATÉ PAR GLITCHERMAN",
-                            fontFamily = RussoOneFamily,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
+                        Icon(Icons.Default.Replay, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("REJOUER CINÉMATIQUE", color = ElectricCyan, fontWeight = FontWeight.Bold)
+                    }
+
+                    when (world.mode) {
+                        GameMode.VS_BOT -> {
+                            Button(
+                                onClick = onRematchLocal,
+                                colors = ButtonDefaults.buttonColors(containerColor = FlameOrange),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("rematch_button")
+                            ) {
+                                Icon(Icons.Default.SportsMma, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("REVANCHE", fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        GameMode.ONLINE -> {
+                            Button(
+                                onClick = onOnlineRematchToSelect,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = EmeraldHp,
+                                    contentColor = ObsidianBg
+                                ),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("online_rematch_button")
+                            ) {
+                                Icon(Icons.Default.SportsMma, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("REVANCHE (CHOIX PERSO)", fontWeight = FontWeight.Black)
+                            }
+                        }
+
+                        GameMode.TOURNAMENT -> {
+                            Button(
+                                onClick = onTournamentContinue,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = UltiGold,
+                                    contentColor = ObsidianBg
+                                ),
+                                modifier = Modifier
+                                    .height(48.dp)
+                                    .testTag("tournament_continue_button")
+                            ) {
+                                Icon(Icons.Default.EmojiEvents, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("CONTINUER LE TOURNOI", fontWeight = FontWeight.Black)
+                            }
+                        }
+
+                        GameMode.TRAINING -> Unit
+                    }
+
+                    if (world.mode != GameMode.TOURNAMENT) {
+                        OutlinedButton(
+                            onClick = onExitBattle,
+                            border = BorderStroke(1.5.dp, Color.White.copy(alpha = 0.65f)),
+                            modifier = Modifier
+                                .height(48.dp)
+                                .testTag("exit_match_button")
+                        ) {
+                            Icon(Icons.Default.Home, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (world.mode == GameMode.ONLINE) "QUITTER LE SALON" else "MENU PRINCIPAL",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
@@ -682,161 +444,247 @@ private fun GlitchermanHackCinematic(winner: FighterDefinition, elapsedMs: Long)
 }
 
 @Composable
-private fun DaronTransatCinematic(winner: FighterDefinition, elapsedMs: Long) {
-    val sway = sin(elapsedMs * 0.0022f) * 8f
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Golden Tropical Rio Sunset + Ocean + Swaying Palm Trees + Daron Lounging on Transat with Cocktail!
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val w = size.width
-            val h = size.height
-
-            // Sunset Sky
-            drawRect(
-                brush = Brush.verticalGradient(
-                    listOf(Color(0xFF281242), Color(0xFFFF5252), Color(0xFFFFB74D), Color(0xFFFFE082)),
-                    endY = h * 0.64f
-                ),
-                size = Size(w, h * 0.64f)
-            )
-            // Glowing Setting Sun
-            drawCircle(
-                brush = Brush.radialGradient(listOf(Color.White, Color(0xFFFFD600), Color.Transparent)),
-                radius = h * 0.24f,
-                center = Offset(w * 0.72f, h * 0.44f)
-            )
-            // Ocean water with shimmering sun reflections
-            drawRect(
-                brush = Brush.verticalGradient(listOf(Color(0xFF00838F), Color(0xFF00ACC1))),
-                topLeft = Offset(0f, h * 0.56f),
-                size = Size(w, h * 0.16f)
-            )
-            for (wv in 0..5) {
-                val wy = h * (0.58f + wv * 0.022f)
-                val wShift = sin(elapsedMs * 0.003f + wv) * 14f
-                val wWidth = w * (0.14f - wv * 0.015f)
-                drawLine(
-                    color = Color(0xFFFFE082).copy(alpha = 0.55f - wv * 0.06f),
-                    start = Offset(w * 0.72f - wWidth * 0.5f + wShift, wy),
-                    end = Offset(w * 0.72f + wWidth * 0.5f + wShift, wy),
-                    strokeWidth = 3.5f,
-                    cap = StrokeCap.Round
-                )
+private fun ArcadeRankScoreCard(
+    rank: ArcadeRankSummary,
+    totalDamage: Int,
+    maxCombo: Int,
+    myRounds: Int,
+    oppRounds: Int,
+    accentColor: Color,
+    revealFraction: Float
+) {
+    val popScale = 0.86f + revealFraction * 0.14f
+    Surface(
+        color = Color(0xEB080B14),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(2.dp, rank.tier.badgeColor.copy(alpha = 0.90f)),
+        modifier = Modifier
+            .graphicsLayer {
+                alpha = revealFraction
+                scaleX = popScale
+                scaleY = popScale
+                translationX = (1f - revealFraction) * 36f
             }
-            // Golden beach sand
-            drawRect(
-                brush = Brush.verticalGradient(listOf(Color(0xFFFDD835), Color(0xFFE6B442))),
-                topLeft = Offset(0f, h * 0.70f),
-                size = Size(w, h * 0.30f)
-            )
-
-            // Swaying Palm Tree on Right
-            drawPalmTree(base = Offset(w * 0.90f, h * 0.76f), height = h * 0.56f, sway = sway)
-            drawPalmTree(base = Offset(w * 0.10f, h * 0.78f), height = h * 0.46f, sway = -sway * 0.7f)
-
-            // Beach Lounger (Transat) centered right!
-            val loungerX = w * 0.58f
-            val loungerY = h * 0.68f
-            // Wooden legs
-            drawLine(Color(0xFF5D4037), Offset(loungerX - 95f, loungerY), Offset(loungerX - 110f, loungerY + 46f), strokeWidth = 9f, cap = StrokeCap.Round)
-            drawLine(Color(0xFF5D4037), Offset(loungerX + 100f, loungerY + 12f), Offset(loungerX + 110f, loungerY + 46f), strokeWidth = 9f, cap = StrokeCap.Round)
-            // Reclined backrest + seat frame
-            val backrestTop = Offset(loungerX - 135f, loungerY - 78f)
-            val seatJoint = Offset(loungerX - 25f, loungerY + 6f)
-            val footEnd = Offset(loungerX + 145f, loungerY + 10f)
-            drawLine(Color(0xFF00C853), backrestTop, seatJoint, strokeWidth = 22f, cap = StrokeCap.Round)
-            drawLine(Color(0xFFFFD600), seatJoint, footEnd, strokeWidth = 20f, cap = StrokeCap.Round)
-            drawLine(Color(0xFF070910), backrestTop, seatJoint, strokeWidth = 3f)
-
-            // Daron relaxed torso in yellow summer shirt + sunglasses lounging back
-            val headPos = Offset(loungerX - 88f, loungerY - 76f)
-            drawRoundRect(
-                color = Color(0xFFFFE033),
-                topLeft = Offset(loungerX - 82f, loungerY - 58f),
-                size = Size(92f, 52f),
-                cornerRadius = CornerRadius(18f, 18f)
-            )
-            // Blue shorts & legs stretched out comfortably
-            drawLine(Color(0xFF1E88E5), Offset(loungerX + 4f, loungerY - 22f), Offset(loungerX + 122f, loungerY - 6f), strokeWidth = 28f, cap = StrokeCap.Round)
-            // Head + sunglasses + big relaxed smile/mustache
-            drawCircle(color = Color(0xFFE0B08A), radius = 32f, center = headPos)
-            drawCircle(color = Color(0xFF070910), radius = 32f, center = headPos, style = Stroke(width = 3f))
-            drawRoundRect(color = Color(0xFF111318), topLeft = Offset(headPos.x - 4f, headPos.y - 12f), size = Size(30f, 14f), cornerRadius = CornerRadius(4f, 4f))
-
-            // Tropical Cocktail in his raised hand (with straw & little umbrella!)
-            val glassCenter = Offset(loungerX + 34f, loungerY - 94f)
-            drawLine(Color(0xFFE0B08A), Offset(loungerX - 10f, loungerY - 40f), glassCenter, strokeWidth = 14f, cap = StrokeCap.Round)
-            val cupPath = Path().apply {
-                moveTo(glassCenter.x - 22f, glassCenter.y - 26f)
-                lineTo(glassCenter.x + 22f, glassCenter.y - 26f)
-                lineTo(glassCenter.x + 14f, glassCenter.y + 18f)
-                lineTo(glassCenter.x - 14f, glassCenter.y + 18f)
-                close()
-            }
-            drawPath(
-                cupPath,
-                brush = Brush.verticalGradient(listOf(Color(0xFFFFD600), Color(0xFFFF3D00)))
-            )
-            drawPath(cupPath, color = Color.White, style = Stroke(width = 3f))
-            // Straw
-            drawLine(Color(0xFF00E5FF), Offset(glassCenter.x + 6f, glassCenter.y + 6f), Offset(glassCenter.x + 22f, glassCenter.y - 46f), strokeWidth = 4f, cap = StrokeCap.Round)
-            // Cocktail Umbrella
-            drawLine(Color(0xFF8D6E63), Offset(glassCenter.x - 10f, glassCenter.y - 10f), Offset(glassCenter.x - 24f, glassCenter.y - 44f), strokeWidth = 3f)
-            drawArc(
-                color = Color(0xFFFF2A85),
-                startAngle = 190f,
-                sweepAngle = 150f,
-                useCenter = true,
-                topLeft = Offset(glassCenter.x - 44f, glassCenter.y - 60f),
-                size = Size(40f, 28f)
-            )
-        }
-
-        // Left: Daron Portrait + Chill Badge
+            .testTag("arcade_rank_card")
+    ) {
         Row(
             modifier = Modifier
-                .align(Alignment.CenterStart)
-                .padding(start = 28.dp, bottom = 24.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Image(
-                painter = painterResource(id = winner.portraitRes),
-                contentDescription = winner.name,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(164.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .border(3.dp, UltiGold, RoundedCornerShape(20.dp))
-            )
-            Surface(
-                color = ObsidianBg.copy(alpha = 0.84f),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.5.dp, UltiGold)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("AMBIANCE RIO", style = MaterialTheme.typography.labelSmall, color = UltiGold)
-                    Text(
-                        text = "Posé sur le transat,\ncocktail à la main !",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(
+                            Color(0xFF0A0E1B),
+                            rank.tier.badgeColor.copy(alpha = 0.14f)
+                        )
                     )
+                )
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Rank Letter Badge (S / A / B / C)
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                rank.tier.badgeColor.copy(alpha = 0.36f),
+                                Color(0xFF0A0D18)
+                            )
+                        ),
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    .border(2.2.dp, rank.tier.badgeColor, RoundedCornerShape(14.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = rank.tier.letter,
+                    fontFamily = RussoOneFamily,
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontStyle = FontStyle.Italic,
+                        fontWeight = FontWeight.Black
+                    ),
+                    color = rank.tier.badgeColor
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = rank.tier.subtitle,
+                        fontFamily = ChakraPetchFamily,
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Black),
+                        color = rank.tier.badgeColor
+                    )
+                    Text(
+                        text = "${rank.score} PTS",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = Color.White.copy(alpha = 0.85f)
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ArcadeStatCell(label = "DÉGÂTS", value = "$totalDamage", valueColor = ElectricCyan)
+                    ArcadeStatCell(label = "COMBO MAX", value = "$maxCombo HITS", valueColor = accentColor)
+                    ArcadeStatCell(label = "ROUNDS", value = "$myRounds - $oppRounds", valueColor = UltiGold)
                 }
             }
         }
     }
 }
 
-private fun DrawScope.drawPalmTree(base: Offset, height: Float, sway: Float) {
-    val top = Offset(base.x + sway * 1.4f - 28f, base.y - height)
-    val trunk = Path().apply {
-        moveTo(base.x, base.y)
-        quadraticTo(base.x - 14f, base.y - height * 0.5f, top.x, top.y)
+@Composable
+private fun ArcadeStatCell(label: String, value: String, valueColor: Color) {
+    Column(horizontalAlignment = Alignment.Start) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSecondary
+        )
+        Text(
+            text = value,
+            fontFamily = RussoOneFamily,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            color = valueColor
+        )
     }
-    drawPath(trunk, color = Color(0xFF4E342E), style = Stroke(width = 16f, cap = StrokeCap.Round))
-    for (leaf in 0..4) {
-        val ang = -PI.toFloat() * 0.85f + leaf * 0.42f + sway * 0.01f
-        val tip = Offset(top.x + cos(ang) * height * 0.42f, top.y + sin(ang) * height * 0.26f + 22f)
-        drawLine(Color(0xFF00C853), top, tip, strokeWidth = 14f, cap = StrokeCap.Round)
+}
+
+private fun DrawScope.drawVictorySpeedLines(winner: FighterDefinition, elapsedMs: Long) {
+    val w = size.width
+    val h = size.height
+    val center = Offset(w * 0.50f, h * 0.44f)
+    val maxR = hypot(w, h)
+
+    for (r in 0..22) {
+        val angle = (r / 22f) * (2f * PI.toFloat()) + elapsedMs * 0.00055f
+        val inner = h * (0.28f + (r % 3) * 0.06f)
+        drawLine(
+            color = if (r % 3 == 0) Color.White.copy(alpha = 0.14f) else winner.primaryColor.copy(alpha = 0.17f),
+            start = Offset(center.x + cos(angle) * inner, center.y + sin(angle) * inner),
+            end = Offset(center.x + cos(angle) * maxR, center.y + sin(angle) * maxR),
+            strokeWidth = if (r % 2 == 0) 4.5f else 2f,
+            cap = StrokeCap.Round
+        )
+    }
+}
+
+private fun DrawScope.drawJardinVictoryFx(elapsedMs: Long) {
+    val w = size.width
+    val h = size.height
+    val erupt = (elapsedMs / 900f).coerceIn(0f, 1f)
+
+    // Rising glowing emerald/golden forest spores
+    for (i in 0..26) {
+        val t = ((elapsedMs * 0.00018f) + i * 0.07f) % 1f
+        val px = ((i * 0.039f + sin(elapsedMs * 0.0014f + i) * 0.03f) * w)
+        val py = (1f - t) * h
+        val alpha = (1f - t) * 0.88f
+        drawCircle(
+            color = (if (i % 3 == 0) UltiGold else EmeraldHp).copy(alpha = alpha),
+            radius = 3f + (i % 3) * 2f,
+            center = Offset(px, py)
+        )
+    }
+
+    // Subtle glowing ground root fissures along bottom-left / bottom-right corners
+    for (v in 0..5) {
+        val xBase = if (v < 3) w * (0.04f + v * 0.06f) else w * (0.80f + (v - 3) * 0.06f)
+        val sway = sin(elapsedMs * 0.0035f + v) * 18f
+        val topY = h * (1f - erupt * (0.24f + (v % 2) * 0.10f))
+        val path = Path().apply {
+            moveTo(xBase, h)
+            quadraticTo(xBase + sway, (h + topY) * 0.5f, xBase + 8f, topY)
+        }
+        drawPath(path, color = EmeraldHp.copy(alpha = 0.45f), style = Stroke(width = 6f, cap = StrokeCap.Round))
+    }
+}
+
+private fun DrawScope.drawChenVictoryFx(elapsedMs: Long) {
+    val w = size.width
+    val h = size.height
+
+    // Blazing golden slash ribbon across backdrop
+    drawLine(
+        brush = Brush.linearGradient(
+            listOf(Color.Transparent, UltiGold.copy(alpha = 0.55f), FlameOrange.copy(alpha = 0.45f), Color.Transparent)
+        ),
+        start = Offset(0f, h * 0.75f),
+        end = Offset(w, h * 0.20f),
+        strokeWidth = 9f,
+        cap = StrokeCap.Round
+    )
+
+    // Drifting sakura petals
+    for (p in 0..24) {
+        val t = ((elapsedMs * 0.00022f) + p * 0.082f) % 1f
+        val px = ((p * 0.048f + sin(elapsedMs * 0.0019f + p) * 0.045f) % 1f) * w
+        val py = t * h
+        drawOval(
+            color = Color(0xFFFFB2C8).copy(alpha = 0.85f),
+            topLeft = Offset(px, py),
+            size = Size(11f, 6.5f)
+        )
+    }
+}
+
+private fun DrawScope.drawGlitchermanVictoryFx(elapsedMs: Long) {
+    val w = size.width
+    val h = size.height
+    val glitchStep = (elapsedMs / 95L).toInt()
+
+    // Cyber matrix vertical data streams
+    for (col in 0..22) {
+        val cx = (col / 22f) * w + 12f
+        val headY = (((elapsedMs * 0.32f) + col * 105f) % (h + 160f)) - 80f
+        drawLine(
+            brush = Brush.verticalGradient(
+                listOf(Color.Transparent, ElectricCyan.copy(alpha = 0.65f), Color.White.copy(alpha = 0.8f)),
+                startY = headY - 120f,
+                endY = headY
+            ),
+            start = Offset(cx, headY - 120f),
+            end = Offset(cx, headY),
+            strokeWidth = 3f,
+            cap = StrokeCap.Round
+        )
+    }
+
+    // Periodic chromatic glitch scan bars
+    for (tear in 0..5) {
+        val ty = ((tear * 0.17f + (glitchStep % 7) * 0.08f) % 1f) * h
+        val tw = w * (0.20f + (tear % 3) * 0.16f)
+        val tx = ((tear * 0.29f + glitchStep * 0.11f) % 0.76f) * w
+        drawRect(
+            color = (if (tear % 2 == 0) Color(0xFFFF2A85) else ElectricCyan).copy(alpha = 0.30f),
+            topLeft = Offset(tx, ty),
+            size = Size(tw, 5f)
+        )
+    }
+}
+
+private fun DrawScope.drawDaronVictoryFx(elapsedMs: Long) {
+    val w = size.width
+    val h = size.height
+
+    // Rising golden sunset embers & tropical confetti
+    for (i in 0..28) {
+        val t = ((elapsedMs * 0.00019f) + i * 0.065f) % 1f
+        val px = ((i * 0.036f + cos(elapsedMs * 0.0015f + i) * 0.03f) * w)
+        val py = (1f - t) * h
+        val alpha = (1f - t) * 0.86f
+        val color = when (i % 3) {
+            0 -> UltiGold
+            1 -> EmeraldHp
+            else -> FlameOrange
+        }
+        drawCircle(
+            color = color.copy(alpha = alpha),
+            radius = 2.8f + (i % 3) * 1.7f,
+            center = Offset(px, py)
+        )
     }
 }

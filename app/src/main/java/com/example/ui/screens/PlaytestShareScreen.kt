@@ -479,7 +479,7 @@ fun PlaytestShareScreen(
                                 fbState.data.forEach { fb ->
                                     FeedbackCard(
                                         feedback = fb,
-                                        isOwner = fb.authorId == currentUserId,
+                                        canDelete = fb.authorId == currentUserId || mainViewModel.isAdmin,
                                         onDelete = { mainViewModel.deletePlaytestFeedback(fb.id) }
                                     )
                                 }
@@ -495,7 +495,7 @@ fun PlaytestShareScreen(
 @Composable
 private fun FeedbackCard(
     feedback: PlaytestFeedback,
-    isOwner: Boolean,
+    canDelete: Boolean,
     onDelete: () -> Unit
 ) {
     Surface(
@@ -526,7 +526,7 @@ private fun FeedbackCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = UltiGold
                     )
-                    if (isOwner) {
+                    if (canDelete) {
                         IconButton(
                             onClick = onDelete,
                             modifier = Modifier.size(30.dp)

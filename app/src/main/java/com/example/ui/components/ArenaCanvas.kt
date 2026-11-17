@@ -17,6 +17,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -38,6 +40,9 @@ import androidx.compose.ui.unit.sp
 import com.example.game.data.MoveEffectType
 import com.example.game.engine.ArenaWorldState
 import com.example.game.engine.CombatAction
+import com.example.game.engine.MatchPhase
+import com.example.game.engine.Projectile
+import com.example.game.engine.ProjectileStyle
 import com.example.game.engine.SlashEffect
 import com.example.ui.theme.RussoOneFamily
 import kotlin.math.PI
@@ -53,30 +58,63 @@ fun ArenaCanvas(
 ) {
     val textMeasurer = rememberTextMeasurer()
 
-    // Dynamic Guilty Gear-style camera zoom & horizontal fighter midpoint tracking
+    // Dynamic Guilty Gear-style camera zoom & impact coordinate tracking
     val separation = abs(world.p1.x - world.p2.x)
     val isHeavyMoment = world.ultiCinematic != null ||
         world.hitStopMs > 0L ||
+        world.impactFlashMs > 0L ||
         world.p1.chargingMegaPunch ||
         world.p2.chargingMegaPunch
     val rawZoom = when {
-        world.hitStopMs > 0L -> 1.15f
-        isHeavyMoment -> 1.13f
+        world.phase == MatchPhase.KO_SLOWMO -> if (world.koFreezeRemainingMs > 0L) 1.28f else 1.24f
+        world.hitStopMs > 0L || world.impactFlashMs > 0L -> 1.19f
+        isHeavyMoment -> 1.14f
         separation < 0.24f -> 1.12f
         separation < 0.42f -> 1.07f
         else -> 1.01f
     }
     val camZoom by animateFloatAsState(
         targetValue = rawZoom,
-        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = Spring.StiffnessMediumLow),
         label = "arenaCamZoom"
     )
-    val rawPivotX = ((world.p1.x + world.p2.x) * 0.5f).coerceIn(0.18f, 0.82f)
+    val rawPivotX = when {
+        world.phase == MatchPhase.KO_SLOWMO -> world.impactX.coerceIn(0.18f, 0.82f)
+        world.impactFlashMs > 0L -> world.impactX
+        else -> ((world.p1.x + world.p2.x) * 0.5f).coerceIn(0.18f, 0.82f)
+    }
     val camPivotX by animateFloatAsState(
         targetValue = rawPivotX,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow),
         label = "arenaCamPivotX"
     )
+
+    val stageColorFilter: ColorFilter? = when {
+        world.phase == MatchPhase.KO_SLOWMO && world.koFreezeRemainingMs > (world.koFreezeTotalMs * 0.58f) -> {
+            // Negative / Invert high-impact anime frame!
+            ColorFilter.colorMatrix(
+                ColorMatrix(
+                    floatArrayOf(
+                        -1.15f, 0f, 0f, 0f, 255f,
+                        0f, -1.15f, 0f, 0f, 255f,
+                        0f, 0f, -1.15f, 0f, 255f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+            )
+        }
+        world.phase == MatchPhase.KO_SLOWMO && world.koFreezeRemainingMs > 0L -> {
+            // Stark high-contrast noir monochrome freeze
+            val bw = ColorMatrix().apply { setToSaturation(0.06f) }
+            ColorFilter.colorMatrix(bw)
+        }
+        world.phase == MatchPhase.KO_SLOWMO -> {
+            // Dramatic cinematic desaturated slow-mo contrast
+            val slow = ColorMatrix().apply { setToSaturation(0.32f) }
+            ColorFilter.colorMatrix(slow)
+        }
+        else -> null
+    }
 
     Box(modifier = modifier.clipToBounds()) {
         Box(
@@ -93,7 +131,8 @@ fun ArenaCanvas(
                 painter = painterResource(id = world.stage.backgroundRes),
                 contentDescription = world.stage.name,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                colorFilter = stageColorFilter
             )
 
             // Volumetric anime rim lighting & atmospheric vignette
@@ -238,26 +277,29 @@ fun ArenaCanvas(
                         )
                     }
 
-                    // Dramatic Ulti darkening + anime speed-lines
+                    // Dramatic Ulti or KO slow-mo darkening + anime speed-lines
                     val ultiActive = world.ultiFlashMs > 0L ||
+                        world.phase == MatchPhase.KO_SLOWMO ||
                         world.p1.action == CombatAction.ULTI ||
                         world.p2.action == CombatAction.ULTI ||
                         world.p1.chargingMegaPunch ||
                         world.p2.chargingMegaPunch
                     if (ultiActive) {
                         val flashAlpha = if (world.ultiFlashMs > 0L) (world.ultiFlashMs / 360f).coerceIn(0f, 1f) * 0.34f else 0.22f
-                        drawRect(color = Color(0xFF03040A).copy(alpha = 0.46f))
+                        drawRect(color = Color(0xFF03040A).copy(alpha = if (world.phase == MatchPhase.KO_SLOWMO) 0.54f else 0.46f))
                         drawRect(color = world.ultiFlashColor.copy(alpha = flashAlpha))
                         val focusFighter = when {
                             world.p1.action == CombatAction.ULTI || world.p1.chargingMegaPunch -> world.p1
                             world.p2.action == CombatAction.ULTI || world.p2.chargingMegaPunch -> world.p2
+                            world.phase == MatchPhase.KO_SLOWMO && world.winnerSide == 2 -> world.p1
+                            world.phase == MatchPhase.KO_SLOWMO -> world.p2
                             else -> world.p1
                         }
                         drawAnimeSpeedLines(
                             center = Offset(focusFighter.x * w, groundY - focusFighter.y * h * 0.6f - h * 0.18f),
                             w = w,
                             h = h,
-                            color = focusFighter.def.primaryColor,
+                            color = if (world.phase == MatchPhase.KO_SLOWMO) Color(0xFFFFD600) else focusFighter.def.primaryColor,
                             timeMs = timeMs
                         )
                     }
@@ -300,6 +342,11 @@ fun ArenaCanvas(
                         drawSpecialEffect(fx = fx, w = w, h = h, groundY = groundY, timeMs = timeMs)
                     }
 
+                    // Active Combo Projectiles (Cyber Shards, Spinning Chopsticks, Coconut Bombs)
+                    world.projectiles.forEach { proj ->
+                        drawProjectile(proj = proj, w = w, h = h, groundY = groundY, timeMs = timeMs)
+                    }
+
                     // Impact shockwave rings + crisp starburst sparks
                     world.sparks.forEach { spark ->
                         val p = (spark.ageMs.toFloat() / spark.maxAgeMs.toFloat()).coerceIn(0f, 1f)
@@ -337,6 +384,72 @@ fun ArenaCanvas(
                                 strokeWidth = if (spark.isUlti) 8f else 4.8f,
                                 cap = StrokeCap.Round
                             )
+                        }
+                    }
+
+                    // Fatal Blow Freeze-Frame & Slow-Mo Particles (shards & embers)
+                    if (world.fatalParticles.isNotEmpty()) {
+                        world.fatalParticles.forEach { fp ->
+                            val frac = (fp.ageMs.toFloat() / fp.maxAgeMs.toFloat()).coerceIn(0f, 1f)
+                            val alpha = (1f - frac * 0.85f).coerceIn(0f, 1f)
+                            val px = fp.x * w
+                            val py = groundY - fp.y * (h * 0.64f)
+                            if (fp.isShard) {
+                                rotate(degrees = fp.rotationDeg, pivot = Offset(px, py)) {
+                                    val s = fp.size * (1f - frac * 0.25f)
+                                    val shardPath = Path().apply {
+                                        moveTo(px, py - s * 1.15f)
+                                        lineTo(px + s * 0.72f, py)
+                                        lineTo(px, py + s * 0.85f)
+                                        lineTo(px - s * 0.65f, py + s * 0.12f)
+                                        close()
+                                    }
+                                    drawPath(shardPath, color = fp.color.copy(alpha = alpha))
+                                    drawPath(
+                                        shardPath,
+                                        color = Color(0xFF05070D).copy(alpha = alpha),
+                                        style = Stroke(width = 2.2f)
+                                    )
+                                }
+                            } else {
+                                drawCircle(
+                                    color = fp.color.copy(alpha = alpha * 0.42f),
+                                    radius = fp.size * 1.9f,
+                                    center = Offset(px, py)
+                                )
+                                drawCircle(
+                                    color = Color.White.copy(alpha = alpha * 0.92f),
+                                    radius = fp.size * 0.72f,
+                                    center = Offset(px, py)
+                                )
+                            }
+                        }
+                    }
+
+                    // KO Freeze-Frame High-Contrast Vignette + Chromatic Split Screen Filter
+                    if (world.phase == MatchPhase.KO_SLOWMO) {
+                        val inFreeze = world.koFreezeRemainingMs > 0L
+                        val center = Offset(world.impactX.coerceIn(0.15f, 0.85f) * w, groundY - h * 0.20f)
+                        drawRect(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color(0xFF04060D).copy(alpha = if (inFreeze) 0.72f else 0.56f)
+                                ),
+                                center = center,
+                                radius = w * (if (inFreeze) 0.58f else 0.72f)
+                            )
+                        )
+                        if (inFreeze) {
+                            // Chromatic RGB scan-tear bars on impact freeze-frame
+                            for (bar in 0..7) {
+                                val by = ((bar * 0.13f + 0.05f) % 1f) * h
+                                drawRect(
+                                    color = (if (bar % 2 == 0) Color(0xFF00E5FF) else Color(0xFFFF2A85)).copy(alpha = 0.26f),
+                                    topLeft = Offset(0f, by),
+                                    size = Size(w, 4.5f)
+                                )
+                            }
                         }
                     }
 
@@ -493,37 +606,32 @@ private fun DrawScope.drawSpecialEffect(
     val reachPx = fx.range * w
 
     when (fx.effectType) {
-        // GLITCHERMAN: Rotating Cyber-Hex Portal + Chromatic Ghost Bayonetta Fist with Articulated Thumb/Knuckles
-        MoveEffectType.BAYONETTA_FIST, MoveEffectType.ULTI_GLITCH_BARRAGE -> {
-            val isUlti = fx.effectType == MoveEffectType.ULTI_GLITCH_BARRAGE
-            val portalX = fxX + fx.facing * w * 0.055f
-            val portalR = h * (if (isUlti) 0.19f else 0.15f)
-            drawBayonettaPortalAndFist(
-                portalCenter = Offset(portalX, fxY),
-                facing = fx.facing.toFloat(),
-                portalR = portalR,
+        // GLITCHERMAN BASE: 360° Onde EMP repoussante avec anneaux concentriques & éclairs
+        MoveEffectType.EMP_PULSE -> {
+            drawEmpPulseEffect(
+                center = Offset(fxX, fxY),
                 reachPx = reachPx,
                 progress = progress,
                 fade = fade,
                 primary = fx.color,
                 accent = fx.accentColor,
-                isBig = isUlti,
                 timeMs = timeMs
             )
-            if (isUlti) {
-                drawBayonettaPortalAndFist(
-                    portalCenter = Offset(portalX + fx.facing * w * 0.048f, fxY - h * 0.125f),
-                    facing = fx.facing.toFloat(),
-                    portalR = portalR * 0.82f,
-                    reachPx = reachPx * 0.95f,
-                    progress = ((progress - 0.10f) * 1.15f).coerceIn(0f, 1f),
-                    fade = fade,
-                    primary = fx.accentColor,
-                    accent = fx.color,
-                    isBig = false,
-                    timeMs = timeMs + 180L
-                )
-            }
+        }
+
+        // GLITCHERMAN ULTI: Verrouillage satellite + Rayon Laser Orbital céleste !
+        MoveEffectType.ULTI_ORBITAL_STRIKE -> {
+            drawOrbitalStrikeEffect(
+                targetX = fx.targetX * w,
+                h = h,
+                groundY = groundY,
+                reachPx = reachPx,
+                progress = progress,
+                fade = fade,
+                primary = fx.color,
+                accent = fx.accentColor,
+                timeMs = timeMs
+            )
         }
 
         // JARDIN: Shattered Glowing Earth Fissure + Rock Debris + Bark-Textured Thorny Vines & Serrated Leaves
@@ -859,207 +967,443 @@ private fun DrawScope.drawSpecialEffect(
                 )
             }
         }
+
+        // GLITCHERMAN COMBO 1 (← → + CAP): Blink Cyber warp trail + chromatic X-slash
+        MoveEffectType.GLITCH_BLINK_STRIKE -> {
+            val originX = fx.targetX * w
+            val trailMidY = fxY
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    listOf(fx.accentColor.copy(alpha = fade * 0.25f), fx.color.copy(alpha = fade * 0.95f))
+                ),
+                start = Offset(originX, trailMidY),
+                end = Offset(fxX, trailMidY),
+                strokeWidth = (18f * fade + 3f),
+                cap = StrokeCap.Round
+            )
+            for (bar in -2..2) {
+                val by = trailMidY + bar * 12f
+                drawLine(
+                    color = (if (bar % 2 == 0) Color.White else fx.accentColor).copy(alpha = fade * 0.85f),
+                    start = Offset(originX + (fxX - originX) * 0.2f, by),
+                    end = Offset(fxX, by),
+                    strokeWidth = 3.2f
+                )
+            }
+            val slashSpan = h * 0.16f
+            drawLine(
+                color = Color(0xFF04060D).copy(alpha = fade * 0.9f),
+                start = Offset(fxX - slashSpan, fxY - slashSpan),
+                end = Offset(fxX + slashSpan, fxY + slashSpan),
+                strokeWidth = 14f * fade + 4f,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = fx.color.copy(alpha = fade),
+                start = Offset(fxX - slashSpan, fxY - slashSpan),
+                end = Offset(fxX + slashSpan, fxY + slashSpan),
+                strokeWidth = 7f * fade + 2f,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = fx.accentColor.copy(alpha = fade),
+                start = Offset(fxX - slashSpan, fxY + slashSpan * 0.7f),
+                end = Offset(fxX + slashSpan, fxY - slashSpan * 0.7f),
+                strokeWidth = 7f * fade + 2f,
+                cap = StrokeCap.Round
+            )
+        }
+
+        // GLITCHERMAN COMBO 2 (→ ← + C): Cyber muzzle glyph pulse
+        MoveEffectType.GLITCH_SHARD_BARRAGE -> {
+            val muzzleX = fxX + fx.facing * 26f
+            val r = h * (0.07f + progress * 0.09f)
+            drawOval(
+                color = fx.color.copy(alpha = fade * 0.9f),
+                topLeft = Offset(muzzleX - r * 0.45f, fxY - r),
+                size = Size(r * 0.9f, r * 2f),
+                style = Stroke(width = 5f * fade + 1.5f)
+            )
+            drawCircle(
+                color = fx.accentColor.copy(alpha = fade * 0.65f),
+                radius = r * 0.55f,
+                center = Offset(muzzleX, fxY)
+            )
+        }
+
+        // JARDIN COMBO 1 (← → + CAP): Seismic emerald ground-slam pillars + rock burst
+        MoveEffectType.EARTH_QUAKE_SLAM -> {
+            val slamR = reachPx * (0.38f + progress * 0.65f)
+            for (ring in 0..2) {
+                val frac = ((progress * 1.3f) - ring * 0.14f).coerceIn(0.1f, 1f)
+                val rx = reachPx * frac
+                val ry = h * (0.045f + ring * 0.016f)
+                drawOval(
+                    color = (if (ring % 2 == 0) fx.color else fx.accentColor).copy(alpha = fade * 0.92f),
+                    topLeft = Offset(fxX - rx, groundY - ry * 0.5f),
+                    size = Size(rx * 2f, ry),
+                    style = Stroke(width = 6.5f * fade + 2f)
+                )
+            }
+            for (pillar in -2..2) {
+                if (pillar == 0) continue
+                val px = fxX + pillar * slamR * 0.34f
+                val ph = h * (0.19f - abs(pillar) * 0.03f) * sin(progress * PI.toFloat()).coerceAtLeast(0.25f)
+                val spire = Path().apply {
+                    moveTo(px - 15f, groundY)
+                    lineTo(px, groundY - ph)
+                    lineTo(px + 15f, groundY)
+                    close()
+                }
+                drawPath(spire, color = Color(0xFF00C853).copy(alpha = fade * 0.92f))
+                drawPath(spire, color = Color(0xFF061E0D).copy(alpha = fade), style = Stroke(width = 3f))
+            }
+        }
+
+        // JARDIN COMBO 2 (→ ← + C): Rising Golden Bark Uppercut Crescent
+        MoveEffectType.THORN_UPPERCUT -> {
+            val r = h * 0.18f
+            val centerOffset = fx.facing * reachPx * 0.38f
+            val rectTopLeft = Offset(fxX + centerOffset - r, fxY - r * 1.15f)
+            val startAngle = if (fx.facing > 0) -95f else 175f
+            drawArc(
+                color = Color(0xFF061E0D).copy(alpha = fade * 0.9f),
+                startAngle = startAngle,
+                sweepAngle = 105f,
+                useCenter = false,
+                topLeft = rectTopLeft,
+                size = Size(r * 2f, r * 2f),
+                style = Stroke(width = 22f * fade + 5f, cap = StrokeCap.Round)
+            )
+            drawArc(
+                brush = Brush.verticalGradient(listOf(Color(0xFFFFD600).copy(alpha = fade), fx.color.copy(alpha = fade))),
+                startAngle = startAngle,
+                sweepAngle = 105f,
+                useCenter = false,
+                topLeft = rectTopLeft,
+                size = Size(r * 2f, r * 2f),
+                style = Stroke(width = 13f * fade + 3f, cap = StrokeCap.Round)
+            )
+        }
+
+        // MAÎTRE CHEN COMBO 1 (← → + CAP): Blazing Dragon Dash Kick Cone & Flame Streaks
+        MoveEffectType.DRAGON_DASH_KICK -> {
+            val coneLen = reachPx * 0.85f
+            val conePath = Path().apply {
+                moveTo(fxX + fx.facing * coneLen * 0.55f, fxY)
+                lineTo(fxX - fx.facing * coneLen * 0.45f, fxY - h * 0.11f)
+                lineTo(fxX - fx.facing * coneLen * 0.30f, fxY)
+                lineTo(fxX - fx.facing * coneLen * 0.45f, fxY + h * 0.11f)
+                close()
+            }
+            drawPath(
+                path = conePath,
+                brush = Brush.horizontalGradient(listOf(fx.accentColor.copy(alpha = fade * 0.88f), fx.color.copy(alpha = fade * 0.95f)))
+            )
+            for (s in -2..2) {
+                val sy = fxY + s * h * 0.038f
+                drawLine(
+                    color = Color.White.copy(alpha = fade * 0.85f),
+                    start = Offset(fxX - fx.facing * coneLen * 0.42f, sy),
+                    end = Offset(fxX + fx.facing * coneLen * 0.38f, sy),
+                    strokeWidth = 4f * fade + 1.2f,
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        // MAÎTRE CHEN COMBO 2 (→ ← + C): Sumi-e release fan
+        MoveEffectType.CHOPSTICK_VOLLEY -> {
+            val fanX = fxX + fx.facing * 24f
+            val r = h * 0.10f
+            drawArc(
+                color = fx.accentColor.copy(alpha = fade * 0.9f),
+                startAngle = if (fx.facing > 0) -48f else 132f,
+                sweepAngle = 96f,
+                useCenter = false,
+                topLeft = Offset(fanX - r, fxY - r),
+                size = Size(r * 2f, r * 2f),
+                style = Stroke(width = 7f * fade + 2f, cap = StrokeCap.Round)
+            )
+        }
+
+        // DARON BRÉSILIEN COMBO 1 (← → + CAP): Samba Meteor Shockwave Dome
+        MoveEffectType.SAMBA_METEOR_DROP -> {
+            val domeR = reachPx * (0.35f + progress * 0.72f)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    listOf(Color.White.copy(alpha = fade * 0.75f), fx.color.copy(alpha = fade * 0.6f), Color.Transparent),
+                    center = Offset(fxX, groundY - h * 0.06f),
+                    radius = domeR
+                ),
+                radius = domeR,
+                center = Offset(fxX, groundY - h * 0.06f)
+            )
+            drawCircle(
+                color = fx.accentColor.copy(alpha = fade * 0.95f),
+                radius = domeR * 0.88f,
+                center = Offset(fxX, groundY - h * 0.06f),
+                style = Stroke(width = 9f * fade + 2.5f)
+            )
+        }
+
+        // DARON BRÉSILIEN COMBO 2 (→ ← + C): Coconut Toss Launch Burst
+        MoveEffectType.COCONUT_BOMB_TOSS -> {
+            val burstX = fxX + fx.facing * 26f
+            val r = h * (0.06f + progress * 0.08f)
+            drawCircle(
+                color = fx.color.copy(alpha = fade * 0.85f),
+                radius = r,
+                center = Offset(burstX, fxY),
+                style = Stroke(width = 5f * fade + 1.5f)
+            )
+        }
     }
 }
 
-private fun DrawScope.drawBayonettaPortalAndFist(
-    portalCenter: Offset,
-    facing: Float,
-    portalR: Float,
+private fun DrawScope.drawProjectile(
+    proj: Projectile,
+    w: Float,
+    h: Float,
+    groundY: Float,
+    timeMs: Long
+) {
+    val px = proj.x * w
+    val py = groundY - proj.y * (h * 0.64f) - h * 0.10f
+    val dir = if (proj.vx >= 0f) 1f else -1f
+
+    when (proj.style) {
+        ProjectileStyle.CYBER_SHARD -> {
+            val len = h * 0.085f
+            val thick = h * 0.022f
+            // Neon tail streak
+            drawLine(
+                brush = Brush.horizontalGradient(
+                    listOf(Color.Transparent, proj.accentColor.copy(alpha = 0.85f), proj.color)
+                ),
+                start = Offset(px - dir * len * 1.45f, py),
+                end = Offset(px + dir * len * 0.4f, py),
+                strokeWidth = 7f,
+                cap = StrokeCap.Round
+            )
+            val shard = Path().apply {
+                moveTo(px + dir * len * 0.72f, py)
+                lineTo(px - dir * len * 0.2f, py - thick)
+                lineTo(px - dir * len * 0.55f, py)
+                lineTo(px - dir * len * 0.2f, py + thick)
+                close()
+            }
+            drawPath(shard, color = proj.color)
+            drawPath(shard, color = Color(0xFF04060D), style = Stroke(width = 2.6f))
+            drawCircle(color = Color.White, radius = thick * 0.42f, center = Offset(px + dir * 4f, py))
+        }
+
+        ProjectileStyle.GOLDEN_CHOPSTICK -> {
+            val len = h * 0.075f
+            val spinDeg = (proj.ageMs * 0.95f) * dir
+            rotate(degrees = spinDeg, pivot = Offset(px, py)) {
+                drawLine(
+                    color = Color(0xFF04060D),
+                    start = Offset(px - len * 0.6f, py),
+                    end = Offset(px + len * 0.6f, py),
+                    strokeWidth = 8.5f,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    brush = Brush.horizontalGradient(listOf(proj.accentColor, proj.color, Color.White)),
+                    start = Offset(px - len * 0.6f, py),
+                    end = Offset(px + len * 0.6f, py),
+                    strokeWidth = 4.8f,
+                    cap = StrokeCap.Round
+                )
+            }
+        }
+
+        ProjectileStyle.COCONUT_BOMB -> {
+            val r = h * 0.040f
+            val spinDeg = (proj.ageMs * 0.65f) * dir
+            // Flame trail
+            drawCircle(
+                color = Color(0xFFFF6D00).copy(alpha = 0.75f),
+                radius = r * 1.25f,
+                center = Offset(px - dir * r * 0.95f, py)
+            )
+            drawCircle(
+                color = proj.color.copy(alpha = 0.85f),
+                radius = r * 0.8f,
+                center = Offset(px - dir * r * 1.45f, py)
+            )
+            rotate(degrees = spinDeg, pivot = Offset(px, py)) {
+                drawCircle(color = Color(0xFF4E342E), radius = r, center = Offset(px, py))
+                drawCircle(color = Color(0xFF04060D), radius = r, center = Offset(px, py), style = Stroke(width = 3.2f))
+                drawArc(
+                    color = proj.accentColor,
+                    startAngle = -50f,
+                    sweepAngle = 150f,
+                    useCenter = false,
+                    topLeft = Offset(px - r * 0.72f, py - r * 0.72f),
+                    size = Size(r * 1.44f, r * 1.44f),
+                    style = Stroke(width = 4.5f, cap = StrokeCap.Round)
+                )
+                // Glowing fuse spark
+                val pulse = 0.8f + 0.35f * sin(timeMs * 0.03f)
+                drawCircle(color = Color(0xFFFFD600), radius = r * 0.36f * pulse, center = Offset(px, py - r * 0.92f))
+                drawCircle(color = Color.White, radius = r * 0.18f, center = Offset(px, py - r * 0.92f))
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawEmpPulseEffect(
+    center: Offset,
     reachPx: Float,
     progress: Float,
     fade: Float,
     primary: Color,
     accent: Color,
-    isBig: Boolean,
     timeMs: Long
 ) {
-    // 1. Textured Cyber-Hex Portal with Rotating Runic Ticks & Inner Grid
-    drawOval(
+    val maxR = reachPx * (0.35f + progress * 0.72f)
+    drawCircle(
         brush = Brush.radialGradient(
-            colors = listOf(Color.White.copy(alpha = fade * 0.74f), accent.copy(alpha = fade * 0.56f), Color.Transparent),
-            center = portalCenter,
-            radius = portalR * 1.40f
+            colors = listOf(Color.White.copy(alpha = fade * 0.65f), primary.copy(alpha = fade * 0.42f), Color.Transparent),
+            center = center,
+            radius = maxR
         ),
-        topLeft = Offset(portalCenter.x - portalR * 0.64f, portalCenter.y - portalR * 1.08f),
-        size = Size(portalR * 1.28f, portalR * 2.16f)
+        radius = maxR,
+        center = center
     )
-    drawOval(
-        color = primary.copy(alpha = fade),
-        topLeft = Offset(portalCenter.x - portalR * 0.46f, portalCenter.y - portalR),
-        size = Size(portalR * 0.92f, portalR * 2f),
-        style = Stroke(width = 7f)
-    )
+
+    for (ring in 0..2) {
+        val rFrac = ((progress * 1.35f) - ring * 0.16f).coerceIn(0.05f, 1.0f)
+        val r = reachPx * rFrac
+        drawCircle(
+            color = Color(0xFF05070D).copy(alpha = fade * 0.75f),
+            radius = r,
+            center = center,
+            style = Stroke(width = (13f - ring * 3f) * fade + 2f)
+        )
+        drawCircle(
+            color = (if (ring % 2 == 0) primary else accent).copy(alpha = fade * 0.94f),
+            radius = r,
+            center = center,
+            style = Stroke(width = (7.5f - ring * 2f) * fade + 1.5f)
+        )
+    }
+
+    for (bolt in 0 until 10) {
+        val ang = (bolt / 10f) * (2f * PI.toFloat()) + timeMs * 0.008f
+        val perp = ang + PI.toFloat() * 0.5f
+        val boltPath = Path().apply {
+            moveTo(center.x + cos(ang) * maxR * 0.15f, center.y + sin(ang) * maxR * 0.15f)
+            for (seg in 1..4) {
+                val frac = 0.15f + seg * 0.21f
+                val jitter = (if ((seg + bolt) % 2 == 0) 1f else -1f) * 14f * fade
+                lineTo(
+                    center.x + cos(ang) * maxR * frac + cos(perp) * jitter,
+                    center.y + sin(ang) * maxR * frac + sin(perp) * jitter
+                )
+            }
+        }
+        drawPath(
+            boltPath,
+            color = if (bolt % 2 == 0) Color.White.copy(alpha = fade * 0.95f) else accent.copy(alpha = fade * 0.9f),
+            style = Stroke(width = 3.5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
+}
+
+private fun DrawScope.drawOrbitalStrikeEffect(
+    targetX: Float,
+    h: Float,
+    groundY: Float,
+    reachPx: Float,
+    progress: Float,
+    fade: Float,
+    primary: Color,
+    accent: Color,
+    timeMs: Long
+) {
+    val retW = reachPx * 0.64f
+    val retH = h * 0.068f
     drawOval(
         color = accent.copy(alpha = fade * 0.92f),
-        topLeft = Offset(portalCenter.x - portalR * 0.30f, portalCenter.y - portalR * 0.74f),
-        size = Size(portalR * 0.60f, portalR * 1.48f),
-        style = Stroke(width = 3.5f)
+        topLeft = Offset(targetX - retW * 0.5f, groundY - retH * 0.5f),
+        size = Size(retW, retH),
+        style = Stroke(width = 4.2f)
     )
-    // Inner cyber hex crossbars
-    drawLine(
-        color = Color.White.copy(alpha = fade * 0.55f),
-        start = Offset(portalCenter.x - portalR * 0.36f, portalCenter.y),
-        end = Offset(portalCenter.x + portalR * 0.36f, portalCenter.y),
-        strokeWidth = 2f
-    )
-    val rotOffset = (timeMs * 0.0055f)
-    for (t in 0..7) {
-        val ang = rotOffset + t * (PI.toFloat() / 4f)
-        val rx = portalCenter.x + cos(ang) * portalR * 0.46f
-        val ry = portalCenter.y + sin(ang) * portalR
-        drawCircle(
-            color = if (t % 2 == 0) Color.White.copy(alpha = fade) else accent.copy(alpha = fade),
-            radius = 3.8f,
-            center = Offset(rx, ry)
-        )
-    }
-
-    // 2. Sculpted Bayonetta Holo-Forearm & Chromatic-Ghost Circuit Fist
-    val fistTravel = (progress * 1.65f).coerceIn(0f, 1f)
-    val fistCenterX = portalCenter.x + facing * (reachPx * 0.85f * fistTravel)
-    val fistH = portalR * (if (isBig) 1.64f else 1.35f)
-    val fistW = fistH * 1.26f
-
-    // Forearm beam with digital scanlines
-    val beamLeft = if (facing > 0) portalCenter.x else fistCenterX
-    val beamLen = abs(fistCenterX - portalCenter.x).coerceAtLeast(8f)
-    drawRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(primary.copy(alpha = fade * 0.85f), Color.White.copy(alpha = fade * 0.62f), accent.copy(alpha = fade * 0.85f)),
-            startY = portalCenter.y - fistH * 0.30f,
-            endY = portalCenter.y + fistH * 0.30f
-        ),
-        topLeft = Offset(beamLeft, portalCenter.y - fistH * 0.28f),
-        size = Size(beamLen, fistH * 0.56f)
-    )
-    for (sl in 1..4) {
-        val sx = beamLeft + beamLen * (sl / 5f)
-        drawLine(
-            color = Color(0xFF070910).copy(alpha = fade * 0.48f),
-            start = Offset(sx, portalCenter.y - fistH * 0.28f),
-            end = Offset(sx, portalCenter.y + fistH * 0.28f),
-            strokeWidth = 3f
-        )
-    }
-
-    val fistLeft = fistCenterX - fistW * 0.5f
-    val fistTop = portalCenter.y - fistH * 0.46f
-
-    // Chromatic RGB ghost shadow slightly trailing fist
-    drawRoundRect(
-        color = accent.copy(alpha = fade * 0.42f),
-        topLeft = Offset(fistLeft - facing * 9f, fistTop - 4f),
-        size = Size(fistW, fistH * 0.92f),
-        cornerRadius = CornerRadius(20f, 20f)
-    )
-
-    // Main sculpted fist block
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            colors = listOf(primary.copy(alpha = fade * 0.98f), accent.copy(alpha = fade * 0.94f))
-        ),
-        topLeft = Offset(fistLeft, fistTop),
-        size = Size(fistW, fistH * 0.92f),
-        cornerRadius = CornerRadius(20f, 20f)
-    )
-    // Upper armored thumb clamp
-    drawRoundRect(
-        brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = fade * 0.9f), primary.copy(alpha = fade))),
-        topLeft = Offset(fistCenterX - fistW * 0.08f, fistTop - fistH * 0.11f),
-        size = Size(fistW * 0.46f, fistH * 0.22f),
-        cornerRadius = CornerRadius(10f, 10f)
-    )
-    drawRoundRect(
-        color = Color(0xFF070910).copy(alpha = fade),
-        topLeft = Offset(fistCenterX - fistW * 0.08f, fistTop - fistH * 0.11f),
-        size = Size(fistW * 0.46f, fistH * 0.22f),
-        cornerRadius = CornerRadius(10f, 10f),
-        style = Stroke(width = 3f)
-    )
-
-    // Metallic specular highlight bar
-    drawRoundRect(
-        color = Color.White.copy(alpha = fade * 0.38f),
-        topLeft = Offset(fistLeft + fistW * 0.08f, fistTop + fistH * 0.07f),
-        size = Size(fistW * 0.72f, fistH * 0.14f),
-        cornerRadius = CornerRadius(8f, 8f)
-    )
-    // Circuit-board trace engraving on fist gauntlet
-    val circuitY = portalCenter.y
-    drawLine(
-        color = Color.White.copy(alpha = fade * 0.85f),
-        start = Offset(fistCenterX - facing * fistW * 0.32f, circuitY),
-        end = Offset(fistCenterX + facing * fistW * 0.14f, circuitY),
-        strokeWidth = 3f
-    )
-    drawLine(
-        color = primary.copy(alpha = fade),
-        start = Offset(fistCenterX - facing * fistW * 0.18f, circuitY - fistH * 0.18f),
-        end = Offset(fistCenterX + facing * fistW * 0.08f, circuitY - fistH * 0.18f),
-        strokeWidth = 2.5f
-    )
-    drawCircle(
-        color = Color.White.copy(alpha = fade),
-        radius = 4f,
-        center = Offset(fistCenterX + facing * fistW * 0.14f, circuitY)
-    )
-
-    drawRoundRect(
-        color = Color(0xFF070910).copy(alpha = fade),
-        topLeft = Offset(fistLeft, fistTop),
-        size = Size(fistW, fistH * 0.92f),
-        cornerRadius = CornerRadius(20f, 20f),
-        style = Stroke(width = 4.6f)
-    )
-
-    // 4 Articulated Beveled Knuckle Plates
-    val knuckleX = fistCenterX + facing * (fistW * 0.39f)
-    for (k in 0..3) {
-        val ky = fistTop + fistH * (0.14f + k * 0.20f)
-        drawRoundRect(
-            brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = fade), primary.copy(alpha = fade * 0.86f))),
-            topLeft = Offset(knuckleX - fistW * 0.15f, ky - fistH * 0.085f),
-            size = Size(fistW * 0.30f, fistH * 0.17f),
-            cornerRadius = CornerRadius(8f, 8f)
-        )
-        drawRoundRect(
-            color = Color(0xFF070910).copy(alpha = fade),
-            topLeft = Offset(knuckleX - fistW * 0.15f, ky - fistH * 0.085f),
-            size = Size(fistW * 0.30f, fistH * 0.17f),
-            cornerRadius = CornerRadius(8f, 8f),
-            style = Stroke(width = 2.6f)
-        )
-    }
-
-    // Trailing pixel glitch shards behind fist
-    for (p in 0..4) {
-        val px = fistCenterX - facing * (fistW * (0.45f + p * 0.22f))
-        val py = portalCenter.y + sin(p * 1.9f + timeMs * 0.02f) * (fistH * 0.42f)
-        val sz = 8.5f + (p % 2) * 5f
-        drawRect(
-            color = (if (p % 2 == 0) primary else accent).copy(alpha = fade * 0.88f),
-            topLeft = Offset(px, py),
-            size = Size(sz, sz * 0.65f)
-        )
-    }
-
-    // Double Supersonic Air Shockwave Cone ahead of fist
-    val coneX = fistCenterX + facing * fistW * 0.56f
-    val conePath = Path().apply {
-        moveTo(coneX + facing * fistW * 0.28f, portalCenter.y)
-        lineTo(coneX - facing * fistW * 0.12f, portalCenter.y - fistH * 0.62f)
-        lineTo(coneX, portalCenter.y)
-        lineTo(coneX - facing * fistW * 0.12f, portalCenter.y + fistH * 0.62f)
-        close()
-    }
-    drawPath(conePath, color = Color.White.copy(alpha = fade * 0.80f))
     drawOval(
-        color = primary.copy(alpha = fade * 0.68f),
-        topLeft = Offset(coneX - fistW * 0.12f, portalCenter.y - fistH * 0.56f),
-        size = Size(fistW * 0.24f, fistH * 1.12f),
-        style = Stroke(width = 3.5f)
+        color = primary.copy(alpha = fade * 0.85f),
+        topLeft = Offset(targetX - retW * 0.30f, groundY - retH * 0.30f),
+        size = Size(retW * 0.60f, retH * 0.60f),
+        style = Stroke(width = 2.5f)
     )
+
+    val beamDescend = (progress / 0.24f).coerceIn(0.18f, 1f)
+    val beamBottom = groundY * beamDescend
+    val widthPulse = 1f + 0.14f * sin(timeMs * 0.035f)
+    val outerW = (reachPx * 0.36f * widthPulse) * (0.45f + fade * 0.55f)
+    val midW = outerW * 0.62f
+    val coreW = outerW * 0.26f
+
+    drawRect(
+        color = Color(0xFF04060D).copy(alpha = fade * 0.88f),
+        topLeft = Offset(targetX - outerW * 0.5f - 4f, 0f),
+        size = Size(outerW + 8f, beamBottom)
+    )
+    drawRect(
+        brush = Brush.horizontalGradient(
+            colors = listOf(accent.copy(alpha = fade * 0.88f), primary.copy(alpha = fade * 0.95f), accent.copy(alpha = fade * 0.88f)),
+            startX = targetX - outerW * 0.5f,
+            endX = targetX + outerW * 0.5f
+        ),
+        topLeft = Offset(targetX - outerW * 0.5f, 0f),
+        size = Size(outerW, beamBottom)
+    )
+    drawRect(
+        color = primary.copy(alpha = fade),
+        topLeft = Offset(targetX - midW * 0.5f, 0f),
+        size = Size(midW, beamBottom)
+    )
+    drawRect(
+        color = Color.White.copy(alpha = fade * 0.98f),
+        topLeft = Offset(targetX - coreW * 0.5f, 0f),
+        size = Size(coreW, beamBottom)
+    )
+
+    for (ring in 0..3) {
+        val ry = (((progress * 2.2f + ring * 0.25f) % 1f) * beamBottom)
+        drawOval(
+            color = Color.White.copy(alpha = fade * 0.9f),
+            topLeft = Offset(targetX - outerW * 0.62f, ry - 6f),
+            size = Size(outerW * 1.24f, 12f),
+            style = Stroke(width = 3.2f)
+        )
+    }
+
+    if (beamDescend >= 0.95f) {
+        val craterR = reachPx * (0.28f + progress * 0.36f)
+        drawCircle(
+            brush = Brush.radialGradient(
+                listOf(Color.White.copy(alpha = fade), primary.copy(alpha = fade * 0.78f), Color.Transparent),
+                center = Offset(targetX, groundY),
+                radius = craterR
+            ),
+            radius = craterR,
+            center = Offset(targetX, groundY)
+        )
+        for (s in -3..3) {
+            val sx = targetX + s * (outerW * 0.26f)
+            val sy = groundY - h * (0.08f + (abs(s) % 3) * 0.05f) * progress
+            drawLine(
+                color = if (s % 2 == 0) accent.copy(alpha = fade) else Color.White.copy(alpha = fade),
+                start = Offset(sx, groundY),
+                end = Offset(sx + s * 10f, sy),
+                strokeWidth = 4.5f,
+                cap = StrokeCap.Round
+            )
+        }
+    }
 }
 
 private fun DrawScope.drawPopupText(

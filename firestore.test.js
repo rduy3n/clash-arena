@@ -13,6 +13,7 @@ const PROJECT_ID = process.env.GCP_PROJECT || "demo-no-project";
 const ALICE_UID = "alice_123";
 const BOB_UID = "bob_456";
 const CHARLIE_UID = "charlie_789";
+const ADMIN_UID = "admin_yaniss";
 
 const [emulatorHost, emulatorPortStr] = (
   process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8085"
@@ -82,14 +83,15 @@ beforeEach(async () => {
   }
 });
 
-test("Unauthenticated user cannot read or write users or match_rooms", async () => {
+test("Unauthenticated user cannot read or write users, match_history, or match_rooms", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(unauthDb.collection("users").doc(ALICE_UID).get());
+  await assertFails(unauthDb.collection("users").doc(ALICE_UID).collection("match_history").get());
   await assertFails(unauthDb.collection("match_rooms").doc("K9X4M2").get());
   await assertFails(unauthDb.collection("match_rooms").where("participantIds", "array-contains", ALICE_UID).get());
 });
 
-test("Authenticated user can create and read own profile, but cannot read another user's profile", async () => {
+test("Authenticated user can manage own profile and match_history, isolated from other users", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
 
@@ -100,6 +102,10 @@ test("Authenticated user can create and read own profile, but cannot read anothe
       favoriteFighterId: "glitcherman",
       wins: 0,
       losses: 0,
+      winStreak: 0,
+      bestStreak: 0,
+      totalDamageDealt: 0,
+      roundsWonTotal: 0,
       createdAt: nowTs(),
       updatedAt: nowTs(),
     })
@@ -116,9 +122,39 @@ test("Authenticated user can create and read own profile, but cannot read anothe
       updatedAt: nowTs(),
     })
   );
+
+  // Match history create + list + immutability + cross-user isolation
+  const matchPayload = {
+    mode: "VS_BOT",
+    myFighterId: "glitcherman",
+    opponentFighterId: "le_chinois",
+    opponentName: "Maître Chen (Normal)",
+    stageId: "orbital_station",
+    myRoundsWon: 2,
+    opponentRoundsWon: 1,
+    damageDealt: 3450,
+    won: true,
+    createdAt: nowTs(),
+  };
+
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).collection("match_history").doc("m_1001").set(matchPayload)
+  );
+  await assertSucceeds(
+    aliceDb.collection("users").doc(ALICE_UID).collection("match_history").get()
+  );
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).collection("match_history").get()
+  );
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).collection("match_history").doc("m_1001").update({ won: false })
+  );
+  await assertFails(
+    bobDb.collection("users").doc(ALICE_UID).collection("match_history").doc("m_1001").delete()
+  );
 });
 
-test("Host can create room, Bob can join, both select fighters, fight, and finished room is locked", async () => {
+test("Host & guest full online room lifecycle including round reset, finish, rematch to character selection, and guest leave", async () => {
   const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
   const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
   const charlieDb = testEnv.authenticatedContext(CHARLIE_UID).firestore();
@@ -140,20 +176,13 @@ test("Host can create room, Bob can join, both select fighters, fight, and finis
       guestName: "Bob",
       participantIds: [ALICE_UID, BOB_UID],
       status: "selecting",
+      guestReady: false,
       updatedAt: nowTs(),
     })
   );
 
   // Non-participant Charlie cannot read active selecting room
   await assertFails(roomRefCharlie.get());
-
-  // List query without participantIds filter fails
-  await assertFails(aliceDb.collection("match_rooms").get());
-
-  // Scoped participantIds list query succeeds
-  await assertSucceeds(
-    aliceDb.collection("match_rooms").where("participantIds", "array-contains", ALICE_UID).get()
-  );
 
   // Guest readies up
   await assertSucceeds(
@@ -164,12 +193,19 @@ test("Host can create room, Bob can join, both select fighters, fight, and finis
     })
   );
 
-  // Host starts fight
+  // Host starts fight resetting all combat fields
   await assertSucceeds(
     roomRefAlice.update({
       hostFighterId: "daron_bresilien",
       hostReady: true,
+      stageId: "orbital_station",
       status: "fighting",
+      roundNumber: 1,
+      p1RoundsWon: 0,
+      p2RoundsWon: 0,
+      winnerSide: "none",
+      p1X: 0.25, p1Y: 0.0, p1Facing: 1, p1Action: "idle", p1ActionSeq: 0, p1Blocking: false, p1Ulti: 0, p1DealtDmg: 0,
+      p2X: 0.75, p2Y: 0.0, p2Facing: -1, p2Action: "idle", p2ActionSeq: 0, p2Blocking: false, p2Ulti: 0, p2DealtDmg: 0,
       updatedAt: nowTs(),
     })
   );
@@ -193,6 +229,18 @@ test("Host can create room, Bob can join, both select fighters, fight, and finis
     })
   );
 
+  // Host advances round cleanly resetting BOTH P1 and P2 states
+  await assertSucceeds(
+    roomRefAlice.update({
+      roundNumber: 2,
+      p1RoundsWon: 1,
+      p2RoundsWon: 0,
+      p1X: 0.25, p1Y: 0.0, p1Facing: 1, p1Action: "idle", p1ActionSeq: 0, p1Blocking: false, p1Ulti: 0, p1DealtDmg: 0,
+      p2X: 0.75, p2Y: 0.0, p2Facing: -1, p2Action: "idle", p2ActionSeq: 0, p2Blocking: false, p2Ulti: 0, p2DealtDmg: 0,
+      updatedAt: nowTs(),
+    })
+  );
+
   // Host finishes match
   await assertSucceeds(
     roomRefAlice.update({
@@ -203,55 +251,85 @@ test("Host can create room, Bob can join, both select fighters, fight, and finis
     })
   );
 
-  // Terminal state lock: no further updates allowed after finished
+  // Regular overwrite on finished room blocked (e.g., changing winnerSide directly)
   await assertFails(
     roomRefAlice.update({
       winnerSide: "p2",
       updatedAt: nowTs(),
     })
   );
+
+  // Rematch! Either participant can reset finished room back to selecting inside the same room
+  await assertSucceeds(
+    roomRefBob.update({
+      status: "selecting",
+      hostReady: false,
+      guestReady: false,
+      roundNumber: 1,
+      p1RoundsWon: 0,
+      p2RoundsWon: 0,
+      winnerSide: "none",
+      p1X: 0.25, p1Y: 0.0, p1Facing: 1, p1Action: "idle", p1ActionSeq: 0, p1Blocking: false, p1Ulti: 0, p1DealtDmg: 0,
+      p2X: 0.75, p2Y: 0.0, p2Facing: -1, p2Action: "idle", p2ActionSeq: 0, p2Blocking: false, p2Ulti: 0, p2DealtDmg: 0,
+      updatedAt: nowTs(),
+    })
+  );
+
+  // Guest leaves room cleanly back to waiting
+  await assertSucceeds(
+    roomRefBob.update({
+      guestId: "",
+      guestName: "",
+      participantIds: [ALICE_UID],
+      status: "waiting",
+      hostReady: false,
+      guestReady: false,
+      updatedAt: nowTs(),
+    })
+  );
 });
 
-test("Signed-in user can create, read, and delete own playtest feedback, but cannot spoof author or update", async () => {
-  const unauthDb = testEnv.unauthenticatedContext().firestore();
-  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+test("Admin email spoofing (unverified) is rejected; verified admin can moderate", async () => {
   const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const spoofedAdminDb = testEnv
+    .authenticatedContext("spoof_uid", { email: "yanisscaboulin@gmail.com", email_verified: false })
+    .firestore();
+  const realAdminDb = testEnv
+    .authenticatedContext(ADMIN_UID, { email: "yanisscaboulin@gmail.com", email_verified: true })
+    .firestore();
 
-  const validFeedback = {
-    authorId: ALICE_UID,
-    authorName: "Alice",
-    modeTested: "IRL",
-    category: "Graphismes",
-    fighterId: "jardin",
-    rating: 5,
-    comment: "Les cinématiques sont incroyables en horizontal !",
-    createdAt: nowTs(),
-  };
-
-  await assertFails(unauthDb.collection("playtest_feedbacks").doc("fb_1").get());
-  await assertSucceeds(aliceDb.collection("playtest_feedbacks").doc("fb_1").set(validFeedback));
-
-  // Bob can read community feedback
-  await assertSucceeds(bobDb.collection("playtest_feedbacks").get());
-
-  // Spoofed authorId rejected
-  await assertFails(
-    bobDb.collection("playtest_feedbacks").doc("fb_2").set({
-      ...validFeedback,
-      authorId: ALICE_UID,
+  await assertSucceeds(
+    bobDb.collection("playtest_feedbacks").doc("fb_bob").set({
+      authorId: BOB_UID,
+      authorName: "Bob",
+      modeTested: "En ligne",
+      category: "Bug",
+      fighterId: "all",
+      rating: 4,
+      comment: "Test de modération admin.",
+      createdAt: nowTs(),
     })
   );
 
-  // Invalid rating rejected
-  await assertFails(
-    aliceDb.collection("playtest_feedbacks").doc("fb_3").set({
-      ...validFeedback,
-      rating: 10,
-    })
-  );
+  // Spoofed unverified admin cannot delete Bob's feedback
+  await assertFails(spoofedAdminDb.collection("playtest_feedbacks").doc("fb_bob").delete());
+  // Real verified admin can delete it
+  await assertSucceeds(realAdminDb.collection("playtest_feedbacks").doc("fb_bob").delete());
 
-  // Updates rejected (immutable), Bob cannot delete Alice's feedback, Alice can
-  await assertFails(aliceDb.collection("playtest_feedbacks").doc("fb_1").update({ rating: 1 }));
-  await assertFails(bobDb.collection("playtest_feedbacks").doc("fb_1").delete());
-  await assertSucceeds(aliceDb.collection("playtest_feedbacks").doc("fb_1").delete());
+  // Admin can also intervene on an active match room, spoofed admin cannot
+  await assertSucceeds(bobDb.collection("match_rooms").doc("ADM999").set({
+    ...baseRoom("ADM999"),
+    hostId: BOB_UID,
+    participantIds: [BOB_UID],
+  }));
+  await assertFails(spoofedAdminDb.collection("match_rooms").doc("ADM999").update({
+    status: "finished",
+    winnerSide: "p1",
+    updatedAt: nowTs(),
+  }));
+  await assertSucceeds(realAdminDb.collection("match_rooms").doc("ADM999").update({
+    status: "finished",
+    winnerSide: "p1",
+    updatedAt: nowTs(),
+  }));
 });

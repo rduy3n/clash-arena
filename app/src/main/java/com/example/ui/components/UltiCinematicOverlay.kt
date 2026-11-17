@@ -91,6 +91,18 @@ fun UltiCinematicOverlay(
             // Character-specific dramatic cut-in accents
             when (cinematic.visualStyle) {
                 FighterVisualStyle.GLITCHERMAN -> {
+                    // Orbital satellite vertical targeting beam & cyber scan bars
+                    drawRect(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.24f),
+                        topLeft = Offset(center.x - w * 0.045f, 0f),
+                        size = Size(w * 0.09f, h)
+                    )
+                    drawLine(
+                        color = Color.White.copy(alpha = 0.72f),
+                        start = Offset(center.x, 0f),
+                        end = Offset(center.x, h),
+                        strokeWidth = 4f
+                    )
                     for (g in 0..8) {
                         val gy = ((g * 0.11f + elapsedFrac * 0.6f) % 1f) * h
                         val gx = ((g * 0.23f + sin(timeMs * 0.02f + g) * 0.2f).coerceIn(0f, 0.85f)) * w

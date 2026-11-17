@@ -4,9 +4,15 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.firebase.GameRepository
-import com.example.data.firebase.MatchRoom
+import com.example.data.firebase.MatchHistoryEntry
 import com.example.data.firebase.PlayerProfile
 import com.example.data.firebase.PlaytestFeedback
+import com.example.game.data.AdminAccess
+import com.example.game.data.AdminCombatModifiers
+import com.example.game.data.BotDifficulty
+import com.example.game.data.TournamentEngine
+import com.example.game.data.TournamentParticipant
+import com.example.game.data.TournamentState
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,8 +33,12 @@ sealed interface UiState<out T> {
 class MainViewModel(
     private val repository: GameRepository,
     private val currentUserId: String,
-    private val userDisplayName: String
+    private val userDisplayName: String,
+    private val userEmail: String? = null
 ) : ViewModel() {
+
+    val isAdmin: Boolean = AdminAccess.isVerifiedAdminEmail(userEmail)
+    val verifiedEmail: String = userEmail.orEmpty()
 
     val profileState: StateFlow<UiState<PlayerProfile?>> = repository.observeProfile(currentUserId)
         .map<PlayerProfile?, UiState<PlayerProfile?>> { UiState.Success(it) }
@@ -44,15 +54,13 @@ class MainViewModel(
             initialValue = UiState.Loading
         )
 
-    val myRoomsState: StateFlow<UiState<List<MatchRoom>>> = repository.observeMyRooms(currentUserId)
-        .map<List<MatchRoom>, UiState<List<MatchRoom>>> { list ->
-            UiState.Success(list.sortedByDescending { it.updatedAt?.seconds ?: 0L })
-        }
+    val matchHistoryState: StateFlow<UiState<List<MatchHistoryEntry>>> = repository.observeMatchHistory(currentUserId)
+        .map<List<MatchHistoryEntry>, UiState<List<MatchHistoryEntry>>> { UiState.Success(it) }
         .catch { error ->
             val fsErr = unwrapFirestoreError(error)
             if (fsErr == null && error is CancellationException) throw error
-            Log.w(TAG, "Rooms observe error", fsErr ?: error)
-            emit(UiState.Error((fsErr ?: error).message ?: "Erreur salons en ligne"))
+            Log.w(TAG, "Match history observe error", fsErr ?: error)
+            emit(UiState.Error((fsErr ?: error).message ?: "Erreur historique"))
         }
         .stateIn(
             scope = viewModelScope,
@@ -60,11 +68,23 @@ class MainViewModel(
             initialValue = UiState.Loading
         )
 
+    private val _activeOnlineRoomCode = MutableStateFlow<String?>(null)
+    val activeOnlineRoomCode: StateFlow<String?> = _activeOnlineRoomCode.asStateFlow()
+
     private val _lobbyMessage = MutableStateFlow<String?>(null)
     val lobbyMessage: StateFlow<String?> = _lobbyMessage.asStateFlow()
 
     private val _lobbyBusy = MutableStateFlow(false)
     val lobbyBusy: StateFlow<Boolean> = _lobbyBusy.asStateFlow()
+
+    private val _adminModifiers = MutableStateFlow(AdminCombatModifiers())
+    val adminModifiers: StateFlow<AdminCombatModifiers> = _adminModifiers.asStateFlow()
+
+    private val _adminStatus = MutableStateFlow<String?>(null)
+    val adminStatus: StateFlow<String?> = _adminStatus.asStateFlow()
+
+    private val _tournamentState = MutableStateFlow<TournamentState?>(null)
+    val tournamentState: StateFlow<TournamentState?> = _tournamentState.asStateFlow()
 
     val feedbacksState: StateFlow<UiState<List<PlaytestFeedback>>> = repository.observeFeedbacks()
         .map<List<PlaytestFeedback>, UiState<List<PlaytestFeedback>>> { UiState.Success(it) }
@@ -92,6 +112,10 @@ class MainViewModel(
         }
     }
 
+    fun setActiveOnlineRoomCode(code: String?) {
+        _activeOnlineRoomCode.value = code
+    }
+
     fun clearLobbyMessage() {
         _lobbyMessage.value = null
     }
@@ -100,6 +124,107 @@ class MainViewModel(
         viewModelScope.launch {
             repository.updateFavoriteFighter(fighterId)
         }
+    }
+
+    fun updateAdminModifiers(modifiers: AdminCombatModifiers) {
+        if (!isAdmin) return
+        _adminModifiers.value = modifiers
+    }
+
+    fun adminBoostWins(amount: Long = 5L) {
+        if (!isAdmin) return
+        viewModelScope.launch {
+            repository.adminBoostWins(amount)
+                .onSuccess { _adminStatus.value = "+$amount victoires ajoutées au profil." }
+                .onFailure { _adminStatus.value = it.message ?: "Erreur admin." }
+        }
+    }
+
+    fun adminResetProfileStats() {
+        if (!isAdmin) return
+        viewModelScope.launch {
+            repository.adminResetProfileStats()
+                .onSuccess { _adminStatus.value = "Statistiques réinitialisées à 0." }
+                .onFailure { _adminStatus.value = it.message ?: "Erreur admin." }
+        }
+    }
+
+    fun clearAdminStatus() {
+        _adminStatus.value = null
+    }
+
+    fun startTournament(
+        size: Int,
+        humanFighterId: String,
+        difficulty: BotDifficulty,
+        stageId: String
+    ) {
+        val playerName = (profileState.value as? UiState.Success)?.data?.displayName ?: userDisplayName
+        val participants = TournamentEngine.createParticipants(
+            size = size,
+            humanName = playerName,
+            humanFighterId = humanFighterId
+        )
+        _tournamentState.value = TournamentEngine.generateBracket(
+            participants = participants,
+            difficulty = difficulty,
+            stageId = stageId
+        )
+    }
+
+    fun updateTournamentParticipants(
+        participants: List<TournamentParticipant>,
+        difficulty: BotDifficulty,
+        stageId: String
+    ) {
+        _tournamentState.value = TournamentEngine.generateBracket(
+            participants = participants,
+            difficulty = difficulty,
+            stageId = stageId
+        )
+    }
+
+    fun simulateNextAiTournamentMatch() {
+        val current = _tournamentState.value ?: return
+        val nextMatch = current.nextPlayableMatch ?: return
+        if (nextMatch.involvesHuman) return
+        _tournamentState.value = TournamentEngine.simulateAiMatch(current, nextMatch)
+    }
+
+    fun simulateAllReadyAiMatches() {
+        var current = _tournamentState.value ?: return
+        var safety = 0
+        while (safety < 32) {
+            val next = current.nextPlayableMatch ?: break
+            if (next.involvesHuman) break
+            current = TournamentEngine.simulateAiMatch(current, next)
+            safety++
+        }
+        _tournamentState.value = current
+    }
+
+    fun recordTournamentBattleResult(
+        matchId: String,
+        winnerSide: Int,
+        p1Score: Int,
+        p2Score: Int
+    ) {
+        val current = _tournamentState.value ?: return
+        val alreadyRecorded = current.rounds.any { r ->
+            r.matches.any { it.id == matchId && it.winner != null }
+        }
+        if (alreadyRecorded) return
+        _tournamentState.value = TournamentEngine.recordMatchResult(
+            state = current,
+            matchId = matchId,
+            winnerSide = winnerSide,
+            p1Score = p1Score,
+            p2Score = p2Score
+        )
+    }
+
+    fun resetTournament() {
+        _tournamentState.value = null
     }
 
     fun createOnlineRoom(
@@ -114,6 +239,7 @@ class MainViewModel(
             val result = repository.createMatchRoom(name, fighterId, stageId)
             _lobbyBusy.value = false
             result.onSuccess { room ->
+                _activeOnlineRoomCode.value = room.roomCode
                 onRoomReady(room.roomCode)
             }.onFailure { err ->
                 _lobbyMessage.value = err.message ?: "Impossible de créer le salon."
@@ -132,6 +258,7 @@ class MainViewModel(
             val result = repository.joinMatchRoom(code, name)
             _lobbyBusy.value = false
             result.onSuccess { room ->
+                _activeOnlineRoomCode.value = room.roomCode
                 onRoomReady(room.roomCode)
             }.onFailure { err ->
                 _lobbyMessage.value = err.message ?: "Impossible de rejoindre ce salon."

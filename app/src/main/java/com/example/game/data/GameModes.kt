@@ -20,5 +20,19 @@ enum class TrainingOpponentMode(val label: String) {
 enum class GameMode {
     VS_BOT,
     TRAINING,
-    ONLINE
+    ONLINE,
+    TOURNAMENT
+}
+
+data class AdminCombatModifiers(
+    val damageMultiplierP1: Float = 1f,
+    val infiniteUltiP1: Boolean = false,
+    val godModeP1: Boolean = false
+)
+
+object AdminAccess {
+    const val PRIMARY_ADMIN_EMAIL = "yanisscaboulin@gmail.com"
+
+    fun isVerifiedAdminEmail(email: String?): Boolean =
+        email?.trim()?.equals(PRIMARY_ADMIN_EMAIL, ignoreCase = true) == true
 }

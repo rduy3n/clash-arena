@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.game.data.FighterDefinition
+import com.example.game.engine.DirectionalComboKind
 import com.example.game.engine.FighterRuntime
 import com.example.ui.theme.ElectricCyan
 import com.example.ui.theme.FlameOrange
@@ -131,16 +132,43 @@ fun ArcadeControls(
         }
 
         // RIGHT THUMB ZONE
+        val baseComboPrimed = runtime.primedComboKind == DirectionalComboKind.LEFT_RIGHT_BASE && runtime.baseCooldownMs <= 0L
+        val classicComboPrimed = runtime.primedComboKind == DirectionalComboKind.RIGHT_LEFT_CLASSIC && runtime.classicCooldownMs <= 0L
+
         Surface(
             color = ObsidianBg.copy(alpha = 0.56f),
             shape = RoundedCornerShape(20.dp),
-            border = BorderStroke(1.dp, ObsidianOutline.copy(alpha = 0.55f))
+            border = BorderStroke(
+                width = if (baseComboPrimed || classicComboPrimed) 1.6.dp else 1.dp,
+                color = if (baseComboPrimed || classicComboPrimed) UltiGold.copy(alpha = 0.85f) else ObsidianOutline.copy(alpha = 0.55f)
+            )
         ) {
             Column(
                 modifier = Modifier.padding(8.dp),
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (baseComboPrimed || classicComboPrimed) {
+                    Surface(
+                        color = UltiGold.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, UltiGold)
+                    ) {
+                        Text(
+                            text = if (baseComboPrimed) {
+                                "COMBO PRÊT : ${fighter.comboBaseMove.name.uppercase()} !"
+                            } else {
+                                "COMBO PRÊT : ${fighter.comboClassicMove.name.uppercase()} !"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = UltiGold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
                 // Top Row: Garde + Ultime
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -230,10 +258,14 @@ fun ArcadeControls(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     CircleAttackButton(
-                        title = if (runtime.baseCooldownMs > 0L) String.format("%.1fs", baseCdSec) else "CAPACITÉ",
-                        subtitle = fighter.baseAbility.name,
+                        title = when {
+                            runtime.baseCooldownMs > 0L -> String.format("%.1fs", baseCdSec)
+                            baseComboPrimed -> "COMBO!"
+                            else -> "CAPACITÉ"
+                        },
+                        subtitle = if (baseComboPrimed) fighter.comboBaseMove.name else fighter.baseAbility.name,
                         icon = Icons.Default.Bolt,
-                        accentColor = FlameOrange,
+                        accentColor = if (baseComboPrimed) UltiGold else FlameOrange,
                         enabled = runtime.baseCooldownMs <= 0L,
                         readyFraction = baseReadyFrac,
                         buttonSize = 58.dp,
@@ -242,10 +274,10 @@ fun ArcadeControls(
                     )
 
                     CircleAttackButton(
-                        title = "CLASSIQUE",
-                        subtitle = fighter.classicMove.name,
+                        title = if (classicComboPrimed) "COMBO!" else "CLASSIQUE",
+                        subtitle = if (classicComboPrimed) fighter.comboClassicMove.name else fighter.classicMove.name,
                         icon = Icons.Default.SportsMma,
-                        accentColor = ElectricCyan,
+                        accentColor = if (classicComboPrimed) UltiGold else ElectricCyan,
                         enabled = runtime.classicCooldownMs <= 0L,
                         readyFraction = if (runtime.classicCooldownMs <= 0L) 1f else 0.5f,
                         buttonSize = 64.dp,

@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.CheckCircle
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -68,7 +71,6 @@ import com.example.ui.theme.ObsidianSurface
 import com.example.ui.theme.TextSecondary
 import com.example.ui.theme.UltiGold
 import com.example.ui.viewmodel.MainViewModel
-import com.example.ui.viewmodel.UiState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -84,17 +86,17 @@ fun OnlineLobbyScreen(
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
-    val myRoomsState by mainViewModel.myRoomsState.collectAsStateWithLifecycle()
+    val activeRoomCode by mainViewModel.activeOnlineRoomCode.collectAsStateWithLifecycle()
     val lobbyBusy by mainViewModel.lobbyBusy.collectAsStateWithLifecycle()
     val lobbyMessage by mainViewModel.lobbyMessage.collectAsStateWithLifecycle()
 
     var joinCodeInput by remember { mutableStateOf("") }
-    var activeRoomCode by remember { mutableStateOf<String?>(null) }
     var copiedNotice by remember { mutableStateOf(false) }
 
     val activeRoom by remember(activeRoomCode) {
-        if (activeRoomCode == null) kotlinx.coroutines.flow.flowOf(null)
-        else repository.observeMatchRoom(activeRoomCode!!)
+        val code = activeRoomCode
+        if (code == null) kotlinx.coroutines.flow.flowOf(null)
+        else repository.observeMatchRoom(code)
     }.collectAsStateWithLifecycle(initialValue = null)
 
     LaunchedEffect(activeRoom?.status, activeRoomCode) {
@@ -113,7 +115,7 @@ fun OnlineLobbyScreen(
     ) {
         Column(
             modifier = Modifier
-                .widthIn(max = 760.dp)
+                .widthIn(max = 780.dp)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -122,8 +124,13 @@ fun OnlineLobbyScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(
                     onClick = {
-                        if (activeRoomCode != null) {
-                            activeRoomCode = null
+                        val code = activeRoomCode
+                        if (code != null) {
+                            val isHost = activeRoom?.hostId == currentUserId
+                            scope.launch {
+                                repository.leaveMatchRoom(code, isHost = isHost)
+                                mainViewModel.setActiveOnlineRoomCode(null)
+                            }
                         } else {
                             onBack()
                         }
@@ -138,12 +145,16 @@ fun OnlineLobbyScreen(
                 }
                 Column {
                     Text(
-                        text = if (activeRoomCode == null) "DUEL EN LIGNE" else "SALON ${activeRoomCode}",
+                        text = if (activeRoomCode == null) "DUEL EN LIGNE" else "SALON $activeRoomCode",
                         style = MaterialTheme.typography.headlineMedium,
                         color = Color.White
                     )
                     Text(
-                        text = "Jouez contre un ami en temps réel via Firestore",
+                        text = if (activeRoomCode == null) {
+                            "Créez un salon ou rejoignez un ami par code à 6 caractères"
+                        } else {
+                            "Sélection de personnage • La revanche vous ramène ici sans recréer de salon"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = ElectricCyan
                     )
@@ -183,7 +194,7 @@ fun OnlineLobbyScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "Générez un code à 6 caractères et partagez-le à votre ami.",
+                            text = "Générez un code unique à 6 caractères et partagez-le à votre ami.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = TextSecondary
                         )
@@ -192,7 +203,7 @@ fun OnlineLobbyScreen(
                                 mainViewModel.createOnlineRoom(
                                     fighterId = favoriteFighterId,
                                     stageId = FighterRoster.stages.first().id,
-                                    onRoomReady = { code -> activeRoomCode = code }
+                                    onRoomReady = { code -> mainViewModel.setActiveOnlineRoomCode(code) }
                                 )
                             },
                             enabled = !lobbyBusy,
@@ -217,7 +228,7 @@ fun OnlineLobbyScreen(
                     }
                 }
 
-                // Join room card
+                // Join room card (no room history!)
                 Surface(
                     color = ObsidianSurface,
                     shape = RoundedCornerShape(18.dp),
@@ -246,7 +257,7 @@ fun OnlineLobbyScreen(
                             onClick = {
                                 mainViewModel.joinOnlineRoom(
                                     code = joinCodeInput,
-                                    onRoomReady = { code -> activeRoomCode = code }
+                                    onRoomReady = { code -> mainViewModel.setActiveOnlineRoomCode(code) }
                                 )
                             },
                             enabled = !lobbyBusy && joinCodeInput.trim().length == 6,
@@ -263,51 +274,6 @@ fun OnlineLobbyScreen(
                             Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("REJOINDRE LE SALON", style = MaterialTheme.typography.labelLarge)
-                        }
-                    }
-                }
-
-                // Recent active rooms
-                val rooms = (myRoomsState as? UiState.Success)?.data?.filter { it.status != "finished" } ?: emptyList()
-                if (rooms.isNotEmpty()) {
-                    Text(
-                        text = "VOS SALONS ACTIFS",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = UltiGold
-                    )
-                    rooms.forEach { room ->
-                        Surface(
-                            onClick = { activeRoomCode = room.roomCode },
-                            color = ObsidianSurface,
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, ObsidianOutline),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("active_room_${room.roomCode}")
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Salon ${room.roomCode}",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = Color.White
-                                    )
-                                    Text(
-                                        text = "${room.hostName} vs ${room.guestName.ifBlank { "En attente..." }}",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = TextSecondary
-                                    )
-                                }
-                                Text(
-                                    text = room.status.uppercase(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = ElectricCyan
-                                )
-                            }
                         }
                     }
                 }
@@ -334,8 +300,21 @@ fun OnlineLobbyScreen(
                                     roomCode = room.roomCode,
                                     isHost = isHost,
                                     fighterId = fighterId,
-                                    ready = if (isHost) room.hostReady else room.guestReady
+                                    ready = false // Reset ready so partner sees updated pick cleanly
                                 )
+                            }
+                        },
+                        onSelectStage = { stageId ->
+                            if (room.hostId == currentUserId) {
+                                scope.launch {
+                                    repository.updateLobbySelection(
+                                        roomCode = room.roomCode,
+                                        isHost = true,
+                                        fighterId = room.hostFighterId,
+                                        ready = room.hostReady,
+                                        stageId = stageId
+                                    )
+                                }
                             }
                         },
                         onToggleReady = {
@@ -358,14 +337,16 @@ fun OnlineLobbyScreen(
                                     isHost = true,
                                     fighterId = room.hostFighterId,
                                     ready = true,
+                                    stageId = room.stageId,
                                     startFight = true
                                 )
                             }
                         },
-                        onDeleteRoom = {
+                        onLeaveOrCloseRoom = {
+                            val isHost = room.hostId == currentUserId
                             scope.launch {
-                                repository.deleteMatchRoom(room.roomCode)
-                                activeRoomCode = null
+                                repository.leaveMatchRoom(room.roomCode, isHost = isHost)
+                                mainViewModel.setActiveOnlineRoomCode(null)
                             }
                         }
                     )
@@ -382,15 +363,17 @@ private fun ActiveRoomLobbyContent(
     copiedNotice: Boolean,
     onCopyCode: () -> Unit,
     onSelectFighter: (String) -> Unit,
+    onSelectStage: (String) -> Unit,
     onToggleReady: () -> Unit,
     onStartMatch: () -> Unit,
-    onDeleteRoom: () -> Unit
+    onLeaveOrCloseRoom: () -> Unit
 ) {
     val isHost = room.hostId == currentUserId
     val myFighterId = if (isHost) room.hostFighterId else room.guestFighterId
     val myReady = if (isHost) room.hostReady else room.guestReady
     val bothJoined = room.guestId.isNotBlank()
     val bothReady = room.hostReady && room.guestReady && bothJoined
+    val currentStage = FighterRoster.getStage(room.stageId)
 
     val context = LocalContext.current
 
@@ -465,6 +448,34 @@ private fun ActiveRoomLobbyContent(
             occupied = bothJoined,
             modifier = Modifier.weight(1f)
         )
+    }
+
+    // Host Stage Selector / Guest Stage Display
+    Text(
+        text = if (isHost) "CHOIX DE L'ARÈNE (HÔTE)" else "ARÈNE : ${currentStage.name.uppercase()}",
+        style = MaterialTheme.typography.labelLarge,
+        color = UltiGold
+    )
+    if (isHost) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FighterRoster.stages.forEach { stage ->
+                val selected = stage.id == room.stageId
+                FilterChip(
+                    selected = selected,
+                    onClick = { onSelectStage(stage.id) },
+                    label = { Text(stage.name, style = MaterialTheme.typography.labelSmall) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = stage.accentGlow.copy(alpha = 0.24f),
+                        selectedLabelColor = stage.accentGlow
+                    )
+                )
+            }
+        }
     }
 
     // Fighter selector for local player
@@ -543,18 +554,26 @@ private fun ActiveRoomLobbyContent(
                 style = MaterialTheme.typography.labelLarge
             )
         }
+    }
 
-        OutlinedButton(
-            onClick = onDeleteRoom,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("lobby_delete_room_button")
-        ) {
-            Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("FERMER LE SALON", color = MaterialTheme.colorScheme.error)
-        }
+    OutlinedButton(
+        onClick = onLeaveOrCloseRoom,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(48.dp)
+            .testTag("lobby_leave_room_button")
+    ) {
+        Icon(
+            imageVector = if (isHost) Icons.Default.DeleteOutline else Icons.AutoMirrored.Filled.ExitToApp,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.error
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = if (isHost) "FERMER LE SALON" else "QUITTER LE SALON",
+            color = MaterialTheme.colorScheme.error
+        )
     }
 }
 

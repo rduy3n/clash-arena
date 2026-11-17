@@ -19,7 +19,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-private val InkOutline = Color(0xFF05070D)
+internal val InkOutline = Color(0xFF05070D)
 
 internal fun DrawScope.drawFighterReflection(
     f: FighterRuntime,
@@ -492,7 +492,7 @@ private fun DrawScope.drawKoPose(
     }
 }
 
-private fun DrawScope.drawBackAccessories(
+internal fun DrawScope.drawBackAccessories(
     f: FighterRuntime,
     shoulderCenter: Offset,
     headCenter: Offset,
@@ -579,7 +579,7 @@ private fun DrawScope.drawBackAccessories(
     }
 }
 
-private fun DrawScope.drawSculptedTorso(
+internal fun DrawScope.drawSculptedTorso(
     f: FighterRuntime,
     shoulderCenter: Offset,
     waistCenter: Offset,
@@ -803,7 +803,7 @@ private fun DrawScope.drawSculptedTorso(
     }
 }
 
-private fun DrawScope.drawAnimeHead(
+internal fun DrawScope.drawAnimeHead(
     f: FighterRuntime,
     headCenter: Offset,
     unit: Float,
@@ -1007,7 +1007,7 @@ private fun DrawScope.drawAnimeHead(
     }
 }
 
-private fun DrawScope.drawAnatomicalLimb(
+internal fun DrawScope.drawAnatomicalLimb(
     start: Offset,
     end: Offset,
     rStart: Float,
@@ -1062,7 +1062,7 @@ private fun DrawScope.drawAnatomicalLimb(
     drawPath(path, color = InkOutline, style = Stroke(width = 3.2f, join = StrokeJoin.Round))
 }
 
-private fun DrawScope.drawDetailedFist(
+internal fun DrawScope.drawDetailedFist(
     center: Offset,
     radius: Float,
     dir: Float,
@@ -1109,7 +1109,7 @@ private fun DrawScope.drawDetailedFist(
     drawPath(fistPath, color = InkOutline, style = Stroke(width = 3.0f, join = StrokeJoin.Round))
 }
 
-private fun DrawScope.drawDetailedBoot(
+internal fun DrawScope.drawDetailedBoot(
     ankle: Offset,
     dir: Float,
     unit: Float,
@@ -1148,7 +1148,7 @@ private data class QuadOffsets(
     val d: Offset
 )
 
-private data class FighterPalette(
+internal data class FighterPalette(
     val torsoLight: Color,
     val torsoDark: Color,
     val sleeveLight: Color,
@@ -1167,7 +1167,7 @@ private data class FighterPalette(
     val skinDeepShade: Color
 )
 
-private fun fighterPalette(style: FighterVisualStyle, flashWhite: Boolean): FighterPalette {
+internal fun fighterPalette(style: FighterVisualStyle, flashWhite: Boolean): FighterPalette {
     if (flashWhite) {
         val w = Color.White
         return FighterPalette(w, w, w, w, w, w, w, w, w, w, w, w, w, w, w, w)
